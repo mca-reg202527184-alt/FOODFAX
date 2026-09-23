@@ -1,0 +1,269 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with role-based access for customers and stall owners",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "fullName": { "type": "string" },
+        "role": { "type": "string", "enum": ["customer", "owner", "admin"] },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "phone", "role", "isActive", "createdAt", "updatedAt"]
+    },
+    "Shop": {
+      "title": "Shop",
+      "description": "Food stall, thela, tapri, or canteen profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "name": { "type": "string" },
+        "stallType": { "type": "string" },
+        "tagline": { "type": "string" },
+        "description": { "type": "string" },
+        "logoUrl": { "type": "string" },
+        "coverImageUrl": { "type": "string" },
+        "phone": { "type": "string" },
+        "address": { "type": "string" },
+        "city": { "type": "string" },
+        "state": { "type": "string" },
+        "pincode": { "type": "string" },
+        "upiId": { "type": "string" },
+        "openingTime": { "type": "string" },
+        "closingTime": { "type": "string" },
+        "isOpen": { "type": "boolean" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "name", "stallType", "address", "isOpen", "isActive", "createdAt", "updatedAt"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Shop food menu category",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "shopId": { "type": "string" },
+        "name": { "type": "string" },
+        "displayOrder": { "type": "number" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "shopId", "name", "displayOrder", "isActive", "createdAt"]
+    },
+    "MenuItem": {
+      "title": "MenuItem",
+      "description": "Individual food menu item served at a stall",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "shopId": { "type": "string" },
+        "categoryId": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "price": { "type": "number" },
+        "imageUrl": { "type": "string" },
+        "isVeg": { "type": "boolean" },
+        "isAvailable": { "type": "boolean" },
+        "isActive": { "type": "boolean" },
+        "displayOrder": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "shopId", "name", "price", "isVeg", "isAvailable", "isActive", "createdAt", "updatedAt"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Digital food order with live queue token number and snapshot items",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "shopId": { "type": "string" },
+        "customerId": { "type": "string" },
+        "tokenNumber": { "type": "string" },
+        "tokenDate": { "type": "string" },
+        "orderType": { "type": "string", "enum": ["TAKEAWAY", "DINE_IN"] },
+        "tableNumber": { "type": "string" },
+        "status": { "type": "string", "enum": ["PENDING", "ACCEPTED", "PREPARING", "READY", "COMPLETED", "CANCELLED"] },
+        "totalAmount": { "type": "number" },
+        "paymentMode": { "type": "string", "enum": ["cash", "upi"] },
+        "paymentStatus": { "type": "string", "enum": ["PENDING", "PAID", "COLLECT_ON_DELIVERY", "FAILED"] },
+        "customerName": { "type": "string" },
+        "customerPhone": { "type": "string" },
+        "customerNotes": { "type": "string" },
+        "cancellationReason": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "acceptedAt": { "type": "string", "format": "date-time" },
+        "preparingAt": { "type": "string", "format": "date-time" },
+        "readyAt": { "type": "string", "format": "date-time" },
+        "completedAt": { "type": "string", "format": "date-time" },
+        "cancelledAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "shopId", "tokenNumber", "orderType", "status", "totalAmount", "paymentMode", "paymentStatus", "createdAt", "updatedAt"]
+    },
+    "OrderItem": {
+      "title": "OrderItem",
+      "description": "Historical snapshot of individual order line items",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "orderId": { "type": "string" },
+        "itemId": { "type": "string" },
+        "itemName": { "type": "string" },
+        "itemPrice": { "type": "number" },
+        "quantity": { "type": "number" },
+        "subtotal": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "orderId", "itemName", "itemPrice", "quantity", "subtotal", "createdAt"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "Transaction and payment reconciliation record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "orderId": { "type": "string" },
+        "paymentMode": { "type": "string" },
+        "paymentStatus": { "type": "string" },
+        "amount": { "type": "number" },
+        "transactionId": { "type": "string" },
+        "provider": { "type": "string" },
+        "paidAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "orderId", "paymentMode", "paymentStatus", "amount", "createdAt", "updatedAt"]
+    },
+    "OrderStatusHistory": {
+      "title": "OrderStatusHistory",
+      "description": "Audit trail for chronological order transitions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "orderId": { "type": "string" },
+        "oldStatus": { "type": "string" },
+        "newStatus": { "type": "string" },
+        "changedBy": { "type": "string" },
+        "note": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "orderId", "newStatus", "createdAt"]
+    },
+    "FavoriteShop": {
+      "title": "FavoriteShop",
+      "description": "Customer saved favorite stalls",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "shopId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "shopId", "createdAt"]
+    },
+    "ShopTokenCounter": {
+      "title": "ShopTokenCounter",
+      "description": "Daily sequential token numbers per shop for atomic counter increment",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "shopId": { "type": "string" },
+        "tokenDate": { "type": "string" },
+        "lastToken": { "type": "number" }
+      },
+      "required": ["id", "shopId", "tokenDate", "lastToken"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "Real-time notifications for stall owners and customers",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "shopId": { "type": "string" },
+        "userId": { "type": "string" },
+        "orderId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string" },
+        "isRead": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "shopId", "title", "message", "type", "isRead", "createdAt"]
+    },
+    "AiActionLog": {
+      "title": "AiActionLog",
+      "description": "Audit trail for AI voice & assistant commands",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "shopId": { "type": "string" },
+        "userId": { "type": "string" },
+        "actionType": { "type": "string" },
+        "commandText": { "type": "string" },
+        "toolName": { "type": "string" },
+        "actionStatus": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "shopId", "actionType", "actionStatus", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/shops/{shopId}": {
+      "schema": "Shop",
+      "description": "Food stall & canteen profiles"
+    },
+    "/categories/{categoryId}": {
+      "schema": "Category",
+      "description": "Shop menu categories"
+    },
+    "/menu_items/{itemId}": {
+      "schema": "MenuItem",
+      "description": "Individual food menu items"
+    },
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Counter orders with token numbers and items snapshot"
+    },
+    "/order_items/{orderItemId}": {
+      "schema": "OrderItem",
+      "description": "Historical snapshot of individual order line items"
+    },
+    "/payments/{paymentId}": {
+      "schema": "Payment",
+      "description": "Transaction and payment reconciliation records"
+    },
+    "/order_status_history/{historyId}": {
+      "schema": "OrderStatusHistory",
+      "description": "Audit trail for chronological order transitions"
+    },
+    "/favorite_shops/{favId}": {
+      "schema": "FavoriteShop",
+      "description": "Customer saved favorite stalls"
+    },
+    "/shop_token_counters/{counterId}": {
+      "schema": "ShopTokenCounter",
+      "description": "Daily sequential token numbers per shop"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "Real-time notifications for stall and customer"
+    },
+    "/ai_action_logs/{logId}": {
+      "schema": "AiActionLog",
+      "description": "Audit trail for AI voice & assistant commands"
+    }
+  }
+}
