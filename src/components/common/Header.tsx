@@ -55,15 +55,9 @@ export const Header: React.FC<HeaderProps> = ({ onOpenQRScanner }) => {
         <div className="flex items-center gap-3">
           <button
             id="brand-home-link"
-            onClick={() => {
-              if (currentUser?.role === 'owner') {
-                navigate('/business');
-              } else {
-                navigate('/');
-              }
-            }}
-            className="flex items-center gap-2 group text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-600 rounded-xl cursor-pointer"
-            aria-label={currentUser?.role === 'owner' ? "FoodFlow Admin Dashboard" : "FoodFlow Home - Counter Orders"}
+            onClick={() => navigate('/')}
+            className="flex items-center gap-2 group text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-600 rounded-xl"
+            aria-label="FoodFlow Home - Counter Orders"
           >
             <div className="w-10 h-10 rounded-xl bg-orange-600 flex items-center justify-center text-white font-black text-xl shadow-sm shadow-orange-500/20 group-hover:scale-105 transition-transform">
               <span className="tracking-tighter">FF</span>
@@ -74,99 +68,62 @@ export const Header: React.FC<HeaderProps> = ({ onOpenQRScanner }) => {
                   Food<span className="text-orange-600">Flow</span>
                 </span>
                 <span className="hidden sm:inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-orange-50 text-orange-700 border border-orange-200/60">
-                  {currentUser?.role === 'owner' ? 'Admin Portal' : 'Counter Orders'}
+                  Counter Orders
                 </span>
               </div>
               <p className="text-[11px] text-slate-500 hidden sm:block leading-tight font-medium mt-0.5">
-                {currentUser?.role === 'owner' ? 'Stall Management & Live Token Terminal' : 'Order. Skip the Queue. Collect.'}
+                Order. Skip the Queue. Collect.
               </p>
             </div>
           </button>
         </div>
 
-        {/* Location selector / Counter info (Customer only) */}
-        {currentUser?.role !== 'owner' && (
-          <button
-            id="location-selector-btn"
-            onClick={() => (isAuthenticated ? navigate('/complete-profile') : navigate('/shops'))}
-            className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200/80 transition-colors text-xs font-semibold text-slate-700 border border-slate-200/70 focus-visible:ring-2 focus-visible:ring-orange-600"
-            title="Current Ordering Zone (Tap to change)"
-            aria-label="Change campus or food court ordering zone"
-          >
-            <MapPin className="w-3.5 h-3.5 text-orange-600" />
-            <span className="truncate max-w-[170px]">
-              {currentUser?.area
-                ? `${currentUser.area}${currentUser.city ? ', ' + currentUser.city : ''}`
-                : 'Mithibai College, Vile Parle'}
-            </span>
-            <ChevronRight className="w-3 h-3 text-slate-400" />
-          </button>
-        )}
+        {/* Location selector / Counter info */}
+        <button
+          id="location-selector-btn"
+          onClick={() => (isAuthenticated ? navigate('/complete-profile') : navigate('/shops'))}
+          className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200/80 transition-colors text-xs font-semibold text-slate-700 border border-slate-200/70 focus-visible:ring-2 focus-visible:ring-orange-600"
+          title="Current Ordering Zone (Tap to change)"
+          aria-label="Change campus or food court ordering zone"
+        >
+          <MapPin className="w-3.5 h-3.5 text-orange-600" />
+          <span className="truncate max-w-[170px]">
+            {currentUser?.area
+              ? `${currentUser.area}${currentUser.city ? ', ' + currentUser.city : ''}`
+              : 'Mithibai College, Vile Parle'}
+          </span>
+          <ChevronRight className="w-3 h-3 text-slate-400" />
+        </button>
 
         {/* Action Controls */}
         <div className="flex items-center gap-2 sm:gap-2.5">
-          {currentUser?.role !== 'owner' && (
-            <>
-              {/* Quick Scan Shop QR */}
-              <button
-                id="scan-stall-qr-btn"
-                onClick={onOpenQRScanner}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-orange-50 hover:bg-orange-100/80 active:scale-95 text-orange-700 border border-orange-200 text-xs font-bold transition-all shadow-xs focus-visible:ring-2 focus-visible:ring-orange-600"
-                title="Scan Shop or Table QR Code"
-                aria-label="Scan stall or table QR code"
-              >
-                <QrCode className="w-4 h-4 text-orange-600" />
-                <span className="hidden xs:inline font-semibold">Scan Stall QR</span>
-                <span className="xs:hidden font-semibold">Scan</span>
-              </button>
+          {/* Quick Scan Shop QR */}
+          <button
+            id="scan-stall-qr-btn"
+            onClick={onOpenQRScanner}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-orange-50 hover:bg-orange-100/80 active:scale-95 text-orange-700 border border-orange-200 text-xs font-bold transition-all shadow-xs focus-visible:ring-2 focus-visible:ring-orange-600"
+            title="Scan Shop or Table QR Code"
+            aria-label="Scan stall or table QR code"
+          >
+            <QrCode className="w-4 h-4 text-orange-600" />
+            <span className="hidden xs:inline font-semibold">Scan Stall QR</span>
+            <span className="xs:hidden font-semibold">Scan</span>
+          </button>
 
-              {/* Search Shortcut */}
-              <button
-                id="quick-search-btn"
-                onClick={() => navigate('/search')}
-                className={`p-2 rounded-xl border text-slate-600 hover:text-slate-900 transition-colors focus-visible:ring-2 focus-visible:ring-orange-600 ${
-                  route.name === 'search'
-                    ? 'bg-slate-100 border-slate-300 text-slate-900'
-                    : 'border-slate-200 bg-white hover:bg-slate-50'
-                }`}
-                aria-label="Search food or shops (Alt + S)"
-                title="Search dishes and stalls (Alt + S)"
-              >
-                <Search className="w-4 h-4" />
-              </button>
-
-              {/* Saved Shops */}
-              <button
-                id="quick-saved-btn"
-                onClick={() => navigate('/saved')}
-                className={`hidden sm:flex p-2 rounded-xl border text-slate-600 hover:text-slate-900 transition-colors focus-visible:ring-2 focus-visible:ring-orange-600 ${
-                  route.name === 'saved'
-                    ? 'bg-rose-50 border-rose-200 text-rose-600'
-                    : 'border-slate-200 bg-white hover:bg-slate-50'
-                }`}
-                aria-label="Saved stalls"
-                title="Saved Stalls"
-              >
-                <Heart className="w-4 h-4" />
-              </button>
-
-              {/* Cart Button */}
-              <button
-                id="quick-cart-btn"
-                onClick={() => navigate('/cart')}
-                className="relative p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 active:scale-95 text-slate-800 transition-all focus-visible:ring-2 focus-visible:ring-orange-600"
-                aria-label={`Shopping Cart, ${totalItems} items`}
-                title="View Cart"
-              >
-                <ShoppingBag className="w-4 h-4" />
-                {totalItems > 0 && (
-                  <span className="absolute -top-1.5 -right-1.5 min-w-5 h-5 px-1 rounded-full bg-orange-600 text-white text-[10px] font-black flex items-center justify-center border-2 border-white shadow-xs">
-                    {totalItems}
-                  </span>
-                )}
-              </button>
-            </>
-          )}
+          {/* Search Shortcut */}
+          <button
+            id="quick-search-btn"
+            onClick={() => navigate('/search')}
+            className={`p-2 rounded-xl border text-slate-600 hover:text-slate-900 transition-colors focus-visible:ring-2 focus-visible:ring-orange-600 ${
+              route.name === 'search'
+                ? 'bg-slate-100 border-slate-300 text-slate-900'
+                : 'border-slate-200 bg-white hover:bg-slate-50'
+            }`}
+            aria-label="Search food or shops (Alt + S)"
+            title="Search dishes and stalls (Alt + S)"
+          >
+            <Search className="w-4 h-4" />
+          </button>
 
           {/* Accessibility Settings Shortcut */}
           <button
@@ -177,6 +134,37 @@ export const Header: React.FC<HeaderProps> = ({ onOpenQRScanner }) => {
             title="Accessibility Preferences (Alt + A)"
           >
             <Sliders className="w-4 h-4 text-slate-700" />
+          </button>
+
+          {/* Saved Shops (For authenticated Customers or quick access) */}
+          <button
+            id="quick-saved-btn"
+            onClick={() => navigate('/saved')}
+            className={`hidden sm:flex p-2 rounded-xl border text-slate-600 hover:text-slate-900 transition-colors focus-visible:ring-2 focus-visible:ring-orange-600 ${
+              route.name === 'saved'
+                ? 'bg-rose-50 border-rose-200 text-rose-600'
+                : 'border-slate-200 bg-white hover:bg-slate-50'
+            }`}
+            aria-label="Saved stalls"
+            title="Saved Stalls"
+          >
+            <Heart className="w-4 h-4" />
+          </button>
+
+          {/* Cart Button */}
+          <button
+            id="quick-cart-btn"
+            onClick={() => navigate('/cart')}
+            className="relative p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 active:scale-95 text-slate-800 transition-all focus-visible:ring-2 focus-visible:ring-orange-600"
+            aria-label={`Shopping Cart, ${totalItems} items`}
+            title="View Cart"
+          >
+            <ShoppingBag className="w-4 h-4" />
+            {totalItems > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 min-w-5 h-5 px-1 rounded-full bg-orange-600 text-white text-[10px] font-black flex items-center justify-center border-2 border-white shadow-xs">
+                {totalItems}
+              </span>
+            )}
           </button>
 
           {/* Dynamic Auth & Role-Based Navigation Area */}
@@ -255,23 +243,11 @@ export const Header: React.FC<HeaderProps> = ({ onOpenQRScanner }) => {
                   <button
                     onClick={() => {
                       setUserDropdownOpen(false);
-                      navigate('/business/shop');
+                      navigate('/');
                     }}
                     className="w-full px-4 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2 border-t border-slate-100"
                   >
-                    <Store className="w-3.5 h-3.5 text-slate-400" />
-                    <span>Stall Profile & GPS</span>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setUserDropdownOpen(false);
-                      navigate('/business/settings');
-                    }}
-                    className="w-full px-4 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                  >
-                    <Sliders className="w-3.5 h-3.5 text-slate-400" />
-                    <span>Terminal Settings</span>
+                    <span>View Customer Web App</span>
                   </button>
 
                   <button
@@ -292,8 +268,12 @@ export const Header: React.FC<HeaderProps> = ({ onOpenQRScanner }) => {
                 onClick={() => setUserDropdownOpen(!userDropdownOpen)}
                 className="flex items-center gap-2 p-1.5 sm:px-3 sm:py-1.5 rounded-xl border border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50 transition-all text-left"
               >
-                <div className="w-7 h-7 rounded-lg bg-orange-100 text-orange-700 flex items-center justify-center font-bold text-xs">
-                  {currentUser.fullName.charAt(0).toUpperCase()}
+                <div className="w-7 h-7 rounded-lg overflow-hidden bg-orange-100 text-orange-700 flex items-center justify-center font-bold text-xs flex-shrink-0">
+                  {currentUser.photoUrl ? (
+                    <img src={currentUser.photoUrl} alt={currentUser.fullName} className="w-full h-full object-cover" />
+                  ) : (
+                    currentUser.fullName.charAt(0).toUpperCase()
+                  )}
                 </div>
                 <div className="hidden sm:block text-left">
                   <div className="text-xs font-bold text-slate-900 leading-none truncate max-w-[100px]">

@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { useRouter } from '../context/RouterContext';
 import { useAuth } from '../context/AuthContext';
 import { getBrowserLocation, DEFAULT_CUSTOMER_LOCATION } from '../services/geoService';
-import { User, MapPin, Navigation, ArrowRight, CheckCircle2, AlertCircle } from 'lucide-react';
+import { User, MapPin, Navigation, ArrowRight, CheckCircle2, AlertCircle, Camera } from 'lucide-react';
+import { CameraAvatarModal } from '../components/profile/CameraAvatarModal';
 
 export const CompleteProfileView: React.FC = () => {
   const { navigate } = useRouter();
@@ -12,6 +13,8 @@ export const CompleteProfileView: React.FC = () => {
   const [phone, setPhone] = useState(currentUser?.phone || '');
   const [area, setArea] = useState(currentUser?.area || 'Bandra West');
   const [city, setCity] = useState(currentUser?.city || 'Mumbai');
+  const [photoUrl, setPhotoUrl] = useState<string | undefined>(currentUser?.photoUrl);
+  const [isCameraModalOpen, setIsCameraModalOpen] = useState(false);
   const [coords, setCoords] = useState<{ latitude: number; longitude: number }>({
     latitude: currentUser?.latitude || DEFAULT_CUSTOMER_LOCATION.latitude,
     longitude: currentUser?.longitude || DEFAULT_CUSTOMER_LOCATION.longitude,
@@ -44,6 +47,7 @@ export const CompleteProfileView: React.FC = () => {
         longitude: coords.longitude,
         area: area.trim(),
         city: city.trim(),
+        photoUrl: photoUrl,
       });
       navigate('/');
     } catch (err: any) {
@@ -57,14 +61,32 @@ export const CompleteProfileView: React.FC = () => {
   return (
     <div className="py-8 px-4 sm:px-6 max-w-md mx-auto space-y-6">
       <div className="text-center space-y-2">
-        <div className="w-14 h-14 rounded-2xl bg-orange-500 text-white flex items-center justify-center mx-auto shadow-md shadow-orange-500/20">
-          <User className="w-7 h-7" />
+        <div className="relative w-16 h-16 mx-auto">
+          {photoUrl ? (
+            <img
+              src={photoUrl}
+              alt="Avatar Preview"
+              className="w-16 h-16 rounded-2xl object-cover border-2 border-orange-500 shadow-md shadow-orange-500/20"
+            />
+          ) : (
+            <div className="w-16 h-16 rounded-2xl bg-orange-500 text-white flex items-center justify-center mx-auto shadow-md shadow-orange-500/20">
+              <User className="w-8 h-8" />
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => setIsCameraModalOpen(true)}
+            className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-slate-900 hover:bg-orange-600 text-white flex items-center justify-center shadow-md border-2 border-white transition-colors"
+            title="Take photo with camera"
+          >
+            <Camera className="w-3 h-3" />
+          </button>
         </div>
         <h1 className="text-2xl font-black text-slate-900 tracking-tight">
           Complete Your Profile
         </h1>
         <p className="text-xs text-slate-500">
-          Set your local area so we can show you stalls and food carts near you
+          Set your local area and optional photo avatar so you can enjoy fast counter tokens
         </p>
       </div>
 
@@ -142,6 +164,14 @@ export const CompleteProfileView: React.FC = () => {
           {loading ? 'Saving Profile...' : 'Save and Start Exploring'}
         </button>
       </form>
+
+      <CameraAvatarModal
+        isOpen={isCameraModalOpen}
+        onClose={() => setIsCameraModalOpen(false)}
+        onSuccess={(uri) => {
+          setPhotoUrl(uri);
+        }}
+      />
     </div>
   );
 };

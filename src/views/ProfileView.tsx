@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useRouter } from '../context/RouterContext';
 import { useAuth } from '../context/AuthContext';
 import { useAccessibility } from '../context/AccessibilityContext';
@@ -16,8 +16,13 @@ import {
   ShieldCheck, 
   Volume2, 
   ChevronRight,
-  ExternalLink
+  ExternalLink,
+  Camera,
+  CheckCircle2,
+  Trash2,
+  Sparkles
 } from 'lucide-react';
+import { CameraAvatarModal } from '../components/profile/CameraAvatarModal';
 
 interface ProfileViewProps {
   onOpenQRScanner: () => void;
@@ -25,23 +30,75 @@ interface ProfileViewProps {
 
 export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenQRScanner }) => {
   const { navigate } = useRouter();
-  const { currentUser, role, logout } = useAuth();
+  const { currentUser, role, logout, removeAvatar } = useAuth();
   const { openA11yModal } = useAccessibility();
+  const [isCameraModalOpen, setIsCameraModalOpen] = useState(false);
+  const [successToast, setSuccessToast] = useState<string | null>(null);
+  const [isRemoving, setIsRemoving] = useState(false);
 
   const handleLogout = async () => {
     await logout();
     navigate('/');
   };
 
+  const handleRemovePhoto = async () => {
+    if (!confirm('Are you sure you want to remove your custom profile photo?')) return;
+    setIsRemoving(true);
+    try {
+      await removeAvatar();
+      setSuccessToast('Profile photo removed.');
+      setTimeout(() => setSuccessToast(null), 3000);
+    } finally {
+      setIsRemoving(false);
+    }
+  };
+
   const isOwner = role === 'owner';
 
   return (
     <div className="py-4 sm:py-6 px-4 sm:px-6 max-w-2xl mx-auto space-y-6 pb-28">
+      {/* Toast Alert */}
+      {successToast && (
+        <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-xs font-bold text-emerald-800 flex items-center justify-between animate-in fade-in slide-in-from-top-2 duration-200 shadow-xs">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+            <span>{successToast}</span>
+          </div>
+          <button
+            onClick={() => setSuccessToast(null)}
+            className="text-emerald-700 hover:text-emerald-900 font-extrabold text-sm ml-2"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Profile Card */}
       <div className="bg-white rounded-3xl border border-slate-200/90 p-5 sm:p-6 shadow-2xs">
         <div className="flex items-center gap-4">
-          <div className="w-16 h-16 rounded-2xl bg-orange-500 text-white flex items-center justify-center font-black text-2xl shadow-md shadow-orange-500/20 flex-shrink-0">
-            {currentUser?.fullName?.charAt(0) || currentUser?.name?.charAt(0) || 'U'}
+          {/* Avatar with Camera badge */}
+          <div className="relative flex-shrink-0">
+            {currentUser?.photoUrl ? (
+              <img
+                src={currentUser.photoUrl}
+                alt={currentUser.fullName || 'User Avatar'}
+                className="w-16 h-16 rounded-2xl object-cover border-2 border-orange-500 shadow-md shadow-orange-500/20"
+              />
+            ) : (
+              <div className="w-16 h-16 rounded-2xl bg-orange-500 text-white flex items-center justify-center font-black text-2xl shadow-md shadow-orange-500/20">
+                {currentUser?.fullName?.charAt(0) || currentUser?.name?.charAt(0) || 'U'}
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setIsCameraModalOpen(true)}
+              className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-slate-900 hover:bg-orange-600 active:scale-95 text-white flex items-center justify-center shadow-md border-2 border-white transition-all"
+              title="Take photo with device camera"
+              aria-label="Take photo with device camera"
+            >
+              <Camera className="w-3 h-3" />
+            </button>
           </div>
 
           <div className="min-w-0 flex-1">
@@ -64,6 +121,40 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenQRScanner }) => 
                 <Mail className="w-3.5 h-3.5 text-slate-400" />
                 <span className="truncate">{currentUser.email}</span>
               </p>
+            )}
+          </div>
+        </div>
+
+        {/* Camera Quick Action Bar */}
+        <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 text-xs text-slate-600">
+            <Camera className="w-3.5 h-3.5 text-orange-500" />
+            <span className="font-semibold">
+              {currentUser?.photoUrl ? 'Custom photo active' : 'Set custom camera avatar'}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsCameraModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs shadow-xs transition-colors"
+            >
+              <Camera className="w-3.5 h-3.5" />
+              <span>{currentUser?.photoUrl ? 'Retake Photo' : 'Take Photo'}</span>
+            </button>
+
+            {currentUser?.photoUrl && (
+              <button
+                type="button"
+                onClick={handleRemovePhoto}
+                disabled={isRemoving}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs transition-colors"
+                title="Remove custom photo"
+              >
+                <Trash2 className="w-3 h-3" />
+                <span className="hidden sm:inline">Reset</span>
+              </button>
             )}
           </div>
         </div>
@@ -167,6 +258,16 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenQRScanner }) => 
         <LogOut className="w-4 h-4" />
         <span>Sign Out</span>
       </button>
+
+      {/* Device Camera Avatar Modal */}
+      <CameraAvatarModal
+        isOpen={isCameraModalOpen}
+        onClose={() => setIsCameraModalOpen(false)}
+        onSuccess={() => {
+          setSuccessToast('Custom profile photo saved to Firestore!');
+          setTimeout(() => setSuccessToast(null), 4000);
+        }}
+      />
     </div>
   );
 };

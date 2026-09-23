@@ -9,6 +9,8 @@
         "phone": { "type": "string" },
         "email": { "type": "string" },
         "fullName": { "type": "string" },
+        "photoUrl": { "type": "string" },
+        "avatarUrl": { "type": "string" },
         "role": { "type": "string", "enum": ["customer", "owner", "admin"] },
         "isActive": { "type": "boolean" },
         "createdAt": { "type": "string", "format": "date-time" },

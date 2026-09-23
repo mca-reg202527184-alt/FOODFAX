@@ -21,7 +21,6 @@ import { auth, db } from '../firebase';
 import { AuthUser, OwnerBusinessContext, Shop, UserRole } from '../types';
 import { shopService } from './shopService';
 import { menuService } from './menuService';
-import { cleanForFirestore } from './firestoreSyncService';
 
 // Storage keys for instantaneous cached hydrate
 const AUTH_USER_KEY = 'foodflow_auth_user';
@@ -342,10 +341,7 @@ class AuthService {
   /**
    * Helper to resolve an email if user entered a phone number
    */
-  private async resolveEmailFromPhoneOrInput(
-    emailOrPhone: string,
-    preferredRole?: 'customer' | 'owner'
-  ): Promise<string> {
+  private async resolveEmailFromPhoneOrInput(emailOrPhone: string): Promise<string> {
     const trimmed = emailOrPhone.trim();
     if (trimmed.includes('@')) {
       return trimmed.toLowerCase();
@@ -353,92 +349,49 @@ class AuthService {
 
     const cleanDigits = trimmed.replace(/\D/g, '');
     if (cleanDigits.length >= 10) {
-      const tenDigits = cleanDigits.slice(-10);
+      // Look up user document by phone
       try {
         const usersRef = collection(db, 'users');
-
-        // Check by explicit owner doc ID if owner is preferred
-        if (preferredRole === 'owner') {
-          const ownerDoc = await getDoc(doc(db, 'users', `owner_${tenDigits}`));
-          if (ownerDoc.exists() && ownerDoc.data().email) {
-            return ownerDoc.data().email.toLowerCase();
-          }
-        } else if (preferredRole === 'customer') {
-          const custDoc = await getDoc(doc(db, 'users', `u_${tenDigits}`));
-          if (custDoc.exists() && custDoc.data().email) {
-            return custDoc.data().email.toLowerCase();
-          }
-        }
-
-        // Check users collection matching phone with role preference
         const q1 = query(usersRef, where('phone', '==', trimmed));
         const s1 = await getDocs(q1);
-        if (!s1.empty) {
-          const matched = preferredRole 
-            ? s1.docs.find(d => d.data().role === preferredRole) || s1.docs[0]
-            : s1.docs.find(d => d.data().role === 'owner') || s1.docs[0];
-          if (matched && matched.data().email) {
-            return matched.data().email.toLowerCase();
-          }
+        if (!s1.empty && s1.docs[0].data().email) {
+          return s1.docs[0].data().email.toLowerCase();
         }
 
-        const q2 = query(usersRef, where('phone', '==', `+91 ${tenDigits}`));
+        const q2 = query(usersRef, where('phone', '==', `+91 ${cleanDigits.slice(-10)}`));
         const s2 = await getDocs(q2);
-        if (!s2.empty) {
-          const matched = preferredRole 
-            ? s2.docs.find(d => d.data().role === preferredRole) || s2.docs[0]
-            : s2.docs.find(d => d.data().role === 'owner') || s2.docs[0];
-          if (matched && matched.data().email) {
-            return matched.data().email.toLowerCase();
-          }
+        if (!s2.empty && s2.docs[0].data().email) {
+          return s2.docs[0].data().email.toLowerCase();
         }
       } catch (e) {
         console.warn('[AuthService] Phone email lookup fallback:', e);
       }
-
-      return preferredRole === 'owner' 
-        ? `${tenDigits}@foodflow.stall` 
-        : `${tenDigits}@foodflow.user`;
+      return `${cleanDigits.slice(-10)}@foodflow.user`;
     }
 
     return trimmed.toLowerCase();
   }
 
   /**
-   * Search Firestore users collection by phone, email, or document ID with role isolation
+   * Search Firestore users collection by phone, email, or document ID
    */
   private async findUserDocByPhoneOrEmail(
     rawInput: string,
-    targetEmail?: string,
-    preferredRole?: 'customer' | 'owner'
+    targetEmail?: string
   ): Promise<{ docId: string; data: any } | null> {
     try {
       const usersRef = collection(db, 'users');
       const cleanDigits = rawInput.replace(/\D/g, '');
-      const tenDigits = cleanDigits.slice(-10);
 
-      // 1. Check direct doc by preferred role if phone number
+      // 1. Check direct doc by input or u_phone
       if (cleanDigits.length >= 10) {
-        if (preferredRole === 'owner') {
-          const snapOwner = await getDoc(doc(db, 'users', `owner_${tenDigits}`));
-          if (snapOwner.exists()) {
-            return { docId: snapOwner.id, data: snapOwner.data() };
-          }
-        } else if (preferredRole === 'customer') {
-          const snapCust = await getDoc(doc(db, 'users', `u_${tenDigits}`));
-          if (snapCust.exists()) {
-            return { docId: snapCust.id, data: snapCust.data() };
-          }
-        } else {
-          // If no role specified, check owner first (for shop owners logging in) then customer
-          const snapOwner = await getDoc(doc(db, 'users', `owner_${tenDigits}`));
-          if (snapOwner.exists()) {
-            return { docId: snapOwner.id, data: snapOwner.data() };
-          }
-          const snapCust = await getDoc(doc(db, 'users', `u_${tenDigits}`));
-          if (snapCust.exists()) {
-            return { docId: snapCust.id, data: snapCust.data() };
-          }
+        const snap = await getDoc(doc(db, 'users', `u_${cleanDigits.slice(-10)}`));
+        if (snap.exists()) {
+          return { docId: snap.id, data: snap.data() };
+        }
+        const snapOwner = await getDoc(doc(db, 'users', `owner_${cleanDigits.slice(-10)}`));
+        if (snapOwner.exists()) {
+          return { docId: snapOwner.id, data: snapOwner.data() };
         }
       }
 
@@ -447,10 +400,7 @@ class AuthService {
         const qEmail = query(usersRef, where('email', '==', targetEmail.toLowerCase()));
         const sEmail = await getDocs(qEmail);
         if (!sEmail.empty) {
-          const matched = preferredRole
-            ? sEmail.docs.find(d => d.data().role === preferredRole) || sEmail.docs[0]
-            : sEmail.docs.find(d => d.data().role === 'owner') || sEmail.docs[0];
-          return { docId: matched.id, data: matched.data() };
+          return { docId: sEmail.docs[0].id, data: sEmail.docs[0].data() };
         }
       }
 
@@ -458,21 +408,15 @@ class AuthService {
       const qPhone = query(usersRef, where('phone', '==', rawInput.trim()));
       const sPhone = await getDocs(qPhone);
       if (!sPhone.empty) {
-        const matched = preferredRole
-          ? sPhone.docs.find(d => d.data().role === preferredRole) || sPhone.docs[0]
-          : sPhone.docs.find(d => d.data().role === 'owner') || sPhone.docs[0];
-        return { docId: matched.id, data: matched.data() };
+        return { docId: sPhone.docs[0].id, data: sPhone.docs[0].data() };
       }
 
       // 4. Query by standard Indian format
       if (cleanDigits.length >= 10) {
-        const qFmt = query(usersRef, where('phone', '==', `+91 ${tenDigits}`));
+        const qFmt = query(usersRef, where('phone', '==', `+91 ${cleanDigits.slice(-10)}`));
         const sFmt = await getDocs(qFmt);
         if (!sFmt.empty) {
-          const matched = preferredRole
-            ? sFmt.docs.find(d => d.data().role === preferredRole) || sFmt.docs[0]
-            : sFmt.docs.find(d => d.data().role === 'owner') || sFmt.docs[0];
-          return { docId: matched.id, data: matched.data() };
+          return { docId: sFmt.docs[0].id, data: sFmt.docs[0].data() };
         }
       }
 
@@ -570,10 +514,9 @@ class AuthService {
   /**
    * Login with Firebase Authentication or Firestore credential store
    */
-  public async login(credentials: { emailOrPhone: string; password?: string; role?: 'customer' | 'owner' }): Promise<{ user: AuthUser; business?: OwnerBusinessContext }> {
+  public async login(credentials: { emailOrPhone: string; password?: string }): Promise<{ user: AuthUser; business?: OwnerBusinessContext }> {
     const rawInput = credentials.emailOrPhone.trim();
     const password = credentials.password?.trim() || '';
-    const preferredRole = credentials.role;
 
     if (!rawInput) {
       throw new Error('Please enter your email or phone number.');
@@ -601,7 +544,7 @@ class AuthService {
       return await this.loginAsDemoOwner();
     }
 
-    const targetEmail = await this.resolveEmailFromPhoneOrInput(rawInput, preferredRole);
+    const targetEmail = await this.resolveEmailFromPhoneOrInput(rawInput);
 
     let userCred: any = null;
     let authError: any = null;
@@ -622,16 +565,13 @@ class AuthService {
 
       if (snap.exists()) {
         const d = snap.data();
-        const isOwnerAccount = preferredRole === 'owner' || d.role === 'owner' || Boolean(d.shopId) || Boolean(d.shopName) || uid.startsWith('owner_');
-        const resolvedRole: UserRole = preferredRole ? preferredRole : (isOwnerAccount ? 'owner' : ((d.role as UserRole) || 'customer'));
-
         userProfile = {
           id: uid,
           fullName: d.fullName || d.name || userCred.user.displayName || 'User',
           name: d.name || d.fullName || userCred.user.displayName || 'User',
           phone: d.phone || '',
           email: userCred.user.email || d.email || '',
-          role: resolvedRole,
+          role: (d.role as UserRole) || 'customer',
           shopId: d.shopId,
           isActive: d.isActive !== false,
           latitude: d.latitude,
@@ -653,15 +593,15 @@ class AuthService {
           name: userCred.user.displayName || targetEmail.split('@')[0],
           phone: '',
           email: targetEmail,
-          role: uid.startsWith('owner_') ? 'owner' : 'customer',
+          role: 'customer',
           isActive: true,
           profileCompleted: false,
           createdAt: new Date().toISOString(),
         };
-        await setDoc(userDocRef, cleanForFirestore({
+        await setDoc(userDocRef, {
           ...userProfile,
           updatedAt: new Date().toISOString(),
-        }), { merge: true });
+        }, { merge: true });
       }
 
       this.persistSession(userProfile, business);
@@ -677,7 +617,7 @@ class AuthService {
       code === 'auth/invalid-login-credentials' ||
       code === 'auth/invalid-email'
     ) {
-      const found = await this.findUserDocByPhoneOrEmail(rawInput, targetEmail, preferredRole);
+      const found = await this.findUserDocByPhoneOrEmail(rawInput, targetEmail);
       if (found) {
         const { docId, data } = found;
         const pwdHash = await hashPassword(password);
@@ -688,16 +628,13 @@ class AuthService {
 
         if (matches) {
           let business: OwnerBusinessContext | null = null;
-          const isOwnerAccount = preferredRole === 'owner' || data.role === 'owner' || Boolean(data.shopId) || Boolean(data.shopName) || docId.startsWith('owner_');
-          const resolvedRole: UserRole = preferredRole ? preferredRole : (isOwnerAccount ? 'owner' : ((data.role as UserRole) || 'customer'));
-
           const userProfile: AuthUser = {
             id: docId,
             fullName: data.fullName || data.name || 'User',
             name: data.name || data.fullName || 'User',
             phone: data.phone || rawInput,
             email: data.email || (rawInput.includes('@') ? rawInput : ''),
-            role: resolvedRole,
+            role: (data.role as UserRole) || 'customer',
             shopId: data.shopId,
             isActive: data.isActive !== false,
             latitude: data.latitude,
@@ -863,8 +800,8 @@ class AuthService {
         console.warn('[AuthService] Falling back to Firestore account store due to:', authErr?.message);
       }
 
-      // Verify no duplicate customer account with this phone or email already in Firestore
-      const existing = await this.findUserDocByPhoneOrEmail(cleanPhone, emailToUse, 'customer');
+      // Verify no duplicate phone or email already in Firestore
+      const existing = await this.findUserDocByPhoneOrEmail(cleanPhone, emailToUse);
       if (existing) {
         throw new Error('An account with this phone number or email already exists. Please log in.');
       }
@@ -985,8 +922,8 @@ class AuthService {
         console.warn('[AuthService] Falling back to Firestore owner account due to:', authErr?.message);
       }
 
-      // Check duplicate owner account
-      const existing = await this.findUserDocByPhoneOrEmail(cleanPhone, email, 'owner');
+      // Check duplicate
+      const existing = await this.findUserDocByPhoneOrEmail(cleanPhone, email);
       if (existing) {
         throw new Error('An account with this email address or phone number already exists. Please log in.');
       }
@@ -1005,11 +942,11 @@ class AuthService {
       createdAt: new Date().toISOString(),
     };
 
-    await setDoc(doc(db, 'users', uid), cleanForFirestore({
+    await setDoc(doc(db, 'users', uid), {
       ...newOwner,
       passwordHash: pwdHash,
       updatedAt: new Date().toISOString(),
-    }), { merge: true });
+    }, { merge: true });
 
     this.persistSession(newOwner, null);
     return { user: newOwner, shop: null };
@@ -1083,8 +1020,8 @@ class AuthService {
       tableServiceAvailable: false,
     };
 
-    // 1. Save shop in Firestore (cleaned)
-    await setDoc(doc(db, 'shops', shopId), cleanForFirestore(newShopDoc));
+    // 1. Save shop in Firestore
+    await setDoc(doc(db, 'shops', shopId), newShopDoc);
 
     // 2. Update user profile
     const userUpdates = {
@@ -1093,10 +1030,9 @@ class AuthService {
       phone: data.phone.trim(),
       shopId: shopId,
       profileCompleted: true,
-      role: 'owner' as UserRole,
       updatedAt: new Date().toISOString(),
     };
-    await setDoc(doc(db, 'users', uid), cleanForFirestore(userUpdates), { merge: true });
+    await setDoc(doc(db, 'users', uid), userUpdates, { merge: true });
 
     const updatedUser: AuthUser = {
       ...this.currentUser!,
@@ -1223,10 +1159,62 @@ class AuthService {
       id: uid,
     };
 
-    await updateDoc(doc(db, 'users', uid), {
-      ...updates,
-      updatedAt: new Date().toISOString(),
+    try {
+      await setDoc(
+        doc(db, 'users', uid),
+        {
+          ...updates,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+    } catch (err) {
+      console.warn('[AuthService] Error updating user in Firestore:', err);
+    }
+
+    this.persistSession(updatedUser, this.currentBusiness);
+    return updatedUser;
+  }
+
+  /**
+   * Set custom profile photo avatar and store URI in Firestore profile document
+   */
+  public async updateAvatar(photoUri: string): Promise<AuthUser> {
+    return this.updateUserProfile({ 
+      photoUrl: photoUri,
+      avatarUrl: photoUri,
     });
+  }
+
+  /**
+   * Remove custom avatar photo from Firestore profile document
+   */
+  public async removeAvatar(): Promise<AuthUser> {
+    const uid = auth.currentUser?.uid || this.currentUser?.id;
+    if (!uid) {
+      throw new Error('User is not authenticated.');
+    }
+
+    const updatedUser: AuthUser = {
+      ...this.currentUser!,
+      photoUrl: undefined,
+      avatarUrl: undefined,
+      id: uid,
+    };
+
+    try {
+      await setDoc(
+        doc(db, 'users', uid),
+        {
+          photoUrl: null,
+          avatarUrl: null,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+    } catch (err) {
+      console.warn('[AuthService] Error clearing photoUrl in Firestore:', err);
+    }
 
     this.persistSession(updatedUser, this.currentBusiness);
     return updatedUser;

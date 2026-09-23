@@ -59,6 +59,8 @@ interface AuthContextType {
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
   updateProfile: (data: { fullName: string; phone: string; email?: string }) => Promise<AuthUser>;
+  updateAvatar: (photoUri: string) => Promise<AuthUser>;
+  removeAvatar: () => Promise<AuthUser>;
   updateOwnerShop: (data: Partial<OwnerBusinessContext>) => Promise<OwnerBusinessContext>;
   setActiveShopId: (shopId: string) => void;
 }
@@ -262,6 +264,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     []
   );
 
+  const updateAvatar = useCallback(async (photoUri: string): Promise<AuthUser> => {
+    const updated = await authService.updateAvatar(photoUri);
+    setCurrentUser(updated);
+    return updated;
+  }, []);
+
+  const removeAvatar = useCallback(async (): Promise<AuthUser> => {
+    const updated = await authService.removeAvatar();
+    setCurrentUser(updated);
+    return updated;
+  }, []);
+
   const updateOwnerShop = useCallback(
     async (data: Partial<OwnerBusinessContext>): Promise<OwnerBusinessContext> => {
       const updated = await authService.updateOwnerShop(data);
@@ -297,6 +311,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     logout,
     refreshSession,
     updateProfile,
+    updateAvatar,
+    removeAvatar,
     updateOwnerShop,
     setActiveShopId,
   };

@@ -215,6 +215,7 @@ export interface AuthUser {
   area?: string;
   city?: string;
   photoUrl?: string;
+  avatarUrl?: string;
   profileCompleted?: boolean;
   createdAt?: string;
   isDemo?: boolean;

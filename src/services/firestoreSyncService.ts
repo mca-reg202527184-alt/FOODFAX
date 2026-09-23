@@ -34,6 +34,26 @@ import { handleFirestoreError, OperationType } from '../utils/firestoreError';
 
 type SyncListener = (isSyncing: boolean) => void;
 
+export type OrderCommitListener = (order: Order) => void;
+const ORDER_COMMIT_LISTENERS = new Set<OrderCommitListener>();
+
+export const onDatabaseOrderCommitted = (listener: OrderCommitListener): (() => void) => {
+  ORDER_COMMIT_LISTENERS.add(listener);
+  return () => {
+    ORDER_COMMIT_LISTENERS.delete(listener);
+  };
+};
+
+export const notifyDatabaseOrderCommitted = (order: Order): void => {
+  ORDER_COMMIT_LISTENERS.forEach((listener) => {
+    try {
+      listener(order);
+    } catch (err) {
+      console.error('[FirestoreSync] Error in order commit listener:', err);
+    }
+  });
+};
+
 export const MOCK_SHOP_IDS = new Set<string>([
   'sharma-vada-pav',
   'college-canteen',
@@ -519,6 +539,9 @@ class FirestoreSyncService {
         createdAt: order.createdAt,
         updatedAt: order.createdAt
       });
+
+      // 6. Notify subscribers that the order has been successfully committed to Firestore
+      notifyDatabaseOrderCommitted(order);
     } catch (err) {
       console.warn('[Firestore] Error saving order to Firestore:', err);
       throw err;

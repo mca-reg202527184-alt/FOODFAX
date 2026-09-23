@@ -1,12 +1,24 @@
 import { Order, OrderStatus } from '../types';
 import { INITIAL_ORDERS } from '../data/mockData';
-import { firestoreSync } from './firestoreSyncService';
+import { firestoreSync, onDatabaseOrderCommitted } from './firestoreSyncService';
 import { notificationService } from './notificationService';
 import { assertValidOrderSubmission } from '../utils/orderValidation';
 
 const ORDERS_STORAGE_KEY = 'foodflow_customer_orders';
 const ORDER_LISTENERS_MAP = new Map<string, Set<(order: Order) => void>>();
 const SHOP_ORDER_LISTENERS = new Map<string, Set<(orders: Order[]) => void>>();
+const ORDER_COMMIT_LISTENERS = new Set<(order: Order) => void>();
+
+// Forward any direct firestore commits to order commit listeners
+onDatabaseOrderCommitted((order) => {
+  ORDER_COMMIT_LISTENERS.forEach((listener) => {
+    try {
+      listener(order);
+    } catch (err) {
+      console.error('[orderService] Error in database order commit listener:', err);
+    }
+  });
+});
 
 export const MOCK_ORDER_IDS = new Set<string>([
   'ord-1001',
@@ -410,6 +422,7 @@ export const orderService = {
     this.notifyOrderListeners(newOrder);
     this.notifyShopListeners(data.shopId);
     await firestoreSync.saveOrder(newOrder);
+    this.notifyOrderCommitted(newOrder);
 
     return newOrder;
   },
@@ -552,6 +565,23 @@ export const orderService = {
       const all = await this.getShopOrders(shopId);
       listeners.forEach((listener) => listener(all));
     }
+  },
+
+  onOrderCommitted(listener: (order: Order) => void): () => void {
+    ORDER_COMMIT_LISTENERS.add(listener);
+    return () => {
+      ORDER_COMMIT_LISTENERS.delete(listener);
+    };
+  },
+
+  notifyOrderCommitted(order: Order): void {
+    ORDER_COMMIT_LISTENERS.forEach((listener) => {
+      try {
+        listener(order);
+      } catch (err) {
+        console.error('[orderService] Error in order commit listener:', err);
+      }
+    });
   },
 };
 

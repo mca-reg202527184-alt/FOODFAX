@@ -104,6 +104,8 @@ export const LiveOrderTracker: React.FC<LiveOrderTrackerProps> = ({ orderId }) =
   const [activeTab, setActiveTab] = useState<'timeline' | 'map' | 'receipt' | 'messages'>('timeline');
   const [shop, setShop] = useState<Shop | null>(null);
   const [showCancelModal, setShowCancelModal] = useState<boolean>(false);
+  const [isReadyTransitioning, setIsReadyTransitioning] = useState<boolean>(false);
+  const prevStatusRef = useRef<OrderStatus | null>(null);
 
   // Customer quick signals sent to stall
   const [customerSignals, setCustomerSignals] = useState<Array<{ text: string; time: string; from: 'customer' | 'stall' }>>([
@@ -139,6 +141,27 @@ export const LiveOrderTracker: React.FC<LiveOrderTrackerProps> = ({ orderId }) =
       announce(`Order ${updated.tokenNumber} has been cancelled.`, 'assertive', true);
     }
   };
+
+  const triggerReadyAnimation = () => {
+    setIsReadyTransitioning(true);
+    notificationService.playReadyChime();
+    announce(`Ding! Token ${order?.tokenNumber || ''} is ready for pickup!`, 'assertive', true);
+    setTimeout(() => {
+      setIsReadyTransitioning(false);
+    }, 4500);
+  };
+
+  // Subtle status-update animation when transitioning specifically from PREPARING to READY
+  useEffect(() => {
+    if (!order) return;
+    const prev = prevStatusRef.current;
+    if (prev === 'PREPARING' && order.orderStatus === 'READY') {
+      setIsReadyTransitioning(true);
+      const timer = setTimeout(() => setIsReadyTransitioning(false), 4500);
+      return () => clearTimeout(timer);
+    }
+    prevStatusRef.current = order.orderStatus;
+  }, [order?.orderStatus]);
 
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
@@ -432,15 +455,24 @@ export const LiveOrderTracker: React.FC<LiveOrderTrackerProps> = ({ orderId }) =
       {/* 2. HERO COUNTER TOKEN CARD & DIGITAL PASS */}
       <section 
         aria-label="Counter Token Pass"
-        className={`relative overflow-hidden bg-white rounded-3xl border-2 ${
+        className={`relative overflow-hidden bg-white rounded-3xl border-2 transition-all duration-500 ${
           isCancelled
             ? 'border-red-400 shadow-red-500/10'
             : isReady
-            ? 'border-emerald-500 shadow-emerald-500/10'
+            ? isReadyTransitioning && !reducedMotion
+              ? 'border-emerald-500 ring-4 ring-emerald-400/40 shadow-2xl shadow-emerald-500/25 animate-status-ready-pop'
+              : 'border-emerald-500 shadow-emerald-500/10'
             : 'border-orange-500 shadow-orange-500/10'
         } p-6 shadow-xl text-center`}
       >
-        <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border mb-2 ${
+        {/* Subtle light sweep shimmer during status update transition */}
+        {isReadyTransitioning && !reducedMotion && (
+          <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-3xl z-0">
+            <div className="w-1/2 h-full bg-gradient-to-r from-transparent via-emerald-400/15 to-transparent animate-status-shimmer" />
+          </div>
+        )}
+
+        <div className={`relative z-10 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border mb-2 ${
           isCancelled
             ? 'bg-red-50 text-red-800 border-red-200'
             : 'bg-orange-50 text-orange-800 border-orange-200'
@@ -458,8 +490,16 @@ export const LiveOrderTracker: React.FC<LiveOrderTrackerProps> = ({ orderId }) =
           )}
         </div>
 
+        {/* Transitioning Alert Pill */}
+        {isReadyTransitioning && (
+          <div className="relative z-10 mb-2.5 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-600 text-white text-xs font-black shadow-md shadow-emerald-600/30 animate-ready-badge">
+            <span className="w-2 h-2 rounded-full bg-white animate-ping" />
+            <span>Ding! Counter Status: Ready for Pickup! 🔔</span>
+          </div>
+        )}
+
         {/* Big Bold Token Number */}
-        <div className="my-1">
+        <div className="relative z-10 my-1">
           <span className="text-xs uppercase tracking-widest text-slate-500 font-extrabold block">
             Counter Token Number
           </span>
@@ -473,7 +513,7 @@ export const LiveOrderTracker: React.FC<LiveOrderTrackerProps> = ({ orderId }) =
         </div>
 
         {/* 4-Digit Security PIN & Barcode Simulator */}
-        <div className="inline-flex items-center gap-3 px-3.5 py-1.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold border border-slate-200 my-2">
+        <div className="relative z-10 inline-flex items-center gap-3 px-3.5 py-1.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold border border-slate-200 my-2">
           <span className="text-slate-500 font-medium">Pickup PIN:</span>
           <span className="font-mono font-black text-slate-900 text-sm tracking-wider">{pickupPin}</span>
           <span className="text-slate-300">|</span>
@@ -488,7 +528,7 @@ export const LiveOrderTracker: React.FC<LiveOrderTrackerProps> = ({ orderId }) =
         </div>
 
         {/* Stall & Order Info */}
-        <div className="pt-3 border-t border-slate-100 flex items-center justify-center flex-wrap gap-2 text-xs">
+        <div className="relative z-10 pt-3 border-t border-slate-100 flex items-center justify-center flex-wrap gap-2 text-xs">
           <span className="font-bold text-slate-800 flex items-center gap-1">
             <Store className="w-3.5 h-3.5 text-orange-600" />
             {order.shopName}
@@ -506,7 +546,7 @@ export const LiveOrderTracker: React.FC<LiveOrderTrackerProps> = ({ orderId }) =
         </div>
 
         {/* Quick Toolbar */}
-        <div className="mt-4 flex items-center justify-center flex-wrap gap-2">
+        <div className="relative z-10 mt-4 flex items-center justify-center flex-wrap gap-2">
           <button
             onClick={playVoiceAnnouncement}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-orange-600"
@@ -514,6 +554,17 @@ export const LiveOrderTracker: React.FC<LiveOrderTrackerProps> = ({ orderId }) =
           >
             <Volume2 className="w-3.5 h-3.5 text-orange-600" />
             <span>{isSpeaking ? 'Speaking...' : 'Voice Announce'}</span>
+          </button>
+
+          {/* Status animation trigger button for testing & replay */}
+          <button
+            onClick={triggerReadyAnimation}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold transition-colors border border-emerald-200 focus-visible:ring-2 focus-visible:ring-emerald-600"
+            title="Preview the subtle status update transition animation"
+            aria-label="Preview ready status animation"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+            <span>{isReadyTransitioning ? 'Updating Status...' : 'Preview Ready Alert'}</span>
           </button>
 
           <button
@@ -564,14 +615,22 @@ export const LiveOrderTracker: React.FC<LiveOrderTrackerProps> = ({ orderId }) =
         className="grid grid-cols-2 gap-3"
       >
         {/* Estimated Prep Timer */}
-        <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-sm flex flex-col justify-between">
+        <div className={`p-4 rounded-2xl border shadow-sm flex flex-col justify-between transition-all duration-500 ${
+          isReadyTransitioning && !reducedMotion
+            ? 'bg-emerald-50/80 border-emerald-300 ring-2 ring-emerald-400/40 animate-status-ready-pop'
+            : isReady
+            ? 'bg-emerald-50/40 border-emerald-200'
+            : 'bg-white border-slate-200'
+        }`}>
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
               <Clock className="w-3.5 h-3.5 text-orange-600" />
               <span>Est. Preparation</span>
             </span>
-            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-orange-100 text-orange-800">
-              Live
+            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+              isReady ? 'bg-emerald-100 text-emerald-800' : 'bg-orange-100 text-orange-800'
+            }`}>
+              {isReady ? 'Ready' : 'Live'}
             </span>
           </div>
           <div className="my-2">
@@ -715,14 +774,21 @@ export const LiveOrderTracker: React.FC<LiveOrderTrackerProps> = ({ orderId }) =
                 >
                   {/* Stage Node Icon */}
                   <div
-                    className={`relative z-10 w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-all ${
+                    className={`relative z-10 w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-all duration-300 ${
                       isDone
                         ? 'bg-emerald-600 text-white shadow-sm'
                         : isCurrent
                         ? 'bg-orange-600 text-white ring-4 ring-orange-100 animate-pulse'
                         : 'bg-white border-2 border-slate-300 text-slate-400'
+                    } ${
+                      stage.status === 'READY' && isReadyTransitioning && !reducedMotion
+                        ? 'ring-4 ring-emerald-300 animate-status-ready-pop scale-110'
+                        : ''
                     }`}
                   >
+                    {stage.status === 'READY' && isReadyTransitioning && !reducedMotion && (
+                      <span className="absolute -inset-1 rounded-full bg-emerald-400/50 animate-ping pointer-events-none" />
+                    )}
                     {isDone ? (
                       <CheckCircle2 className="w-4.5 h-4.5 stroke-[3]" />
                     ) : (
@@ -735,7 +801,9 @@ export const LiveOrderTracker: React.FC<LiveOrderTrackerProps> = ({ orderId }) =
                     <div className="flex items-center justify-between">
                       <h5
                         className={`text-xs font-bold leading-none ${
-                          isCurrent
+                          stage.status === 'READY' && isReadyTransitioning
+                            ? 'text-emerald-600 font-black'
+                            : isCurrent
                             ? 'text-orange-600 font-black'
                             : isDone
                             ? 'text-slate-900'
@@ -744,16 +812,19 @@ export const LiveOrderTracker: React.FC<LiveOrderTrackerProps> = ({ orderId }) =
                       >
                         {stage.label}
                       </h5>
-                      {isCurrent && (
+                      {stage.status === 'READY' && isReadyTransitioning ? (
+                        <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 animate-pulse border border-emerald-300">
+                          Just Ready! 🔔
+                        </span>
+                      ) : isCurrent ? (
                         <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-orange-100 text-orange-800">
                           In Progress
                         </span>
-                      )}
-                      {isDone && (
+                      ) : isDone ? (
                         <span className="text-[10px] font-bold text-emerald-600 flex items-center gap-0.5">
                           Done ✓
                         </span>
-                      )}
+                      ) : null}
                     </div>
                     <p className="text-xs text-slate-600 font-medium mt-1">
                       {stage.desc}

@@ -24,6 +24,7 @@ import {
   Ban
 } from 'lucide-react';
 import { OrderRatingReview } from '../components/order/OrderRatingReview';
+import { SpendingTrendsChart } from '../components/order/SpendingTrendsChart';
 
 export const OrdersHistoryView: React.FC = () => {
   const { navigate } = useRouter();
@@ -122,6 +123,9 @@ export const OrdersHistoryView: React.FC = () => {
           {orders.length} Total
         </span>
       </div>
+
+      {/* 30-Day Spending Trends Bar Chart */}
+      <SpendingTrendsChart orders={orders} />
 
       {/* Filter Tabs */}
       <div 

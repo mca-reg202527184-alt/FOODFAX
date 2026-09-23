@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { CartItem, MenuItem, Shop } from '../types';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { CartItem, MenuItem, Shop, Order } from '../types';
+import { orderService } from '../services/orderService';
 
 interface CartContextType {
   items: CartItem[];
@@ -15,6 +16,7 @@ interface CartContextType {
   updateQuantity: (itemId: string, delta: number) => void;
   getItemQuantity: (itemId: string) => number;
   clearCart: () => void;
+  commitOrderAndClearCart: (orderData: Parameters<typeof orderService.createOrder>[0]) => Promise<Order>;
   conflictData: { newItem: MenuItem; newShop: Shop; existingShopName: string } | null;
   resolveConflict: (replace: boolean) => void;
 }
@@ -22,6 +24,46 @@ interface CartContextType {
 const CART_STORAGE_KEY = 'foodflow_cart_state';
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
+
+/**
+ * Hook executed within CartProvider that listens for database order commits
+ * and automatically clears all items from the cart state immediately.
+ */
+export function useAutoClearCartOnOrderCommit(clearCartFn: () => void) {
+  useEffect(() => {
+    const unsubscribe = orderService.onOrderCommitted((committedOrder: Order) => {
+      // Clear all cart items immediately after order is committed to database
+      clearCartFn();
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [clearCartFn]);
+}
+
+/**
+ * Public hook for any component inside CartProvider to clear all items
+ * from the cart state immediately after an order is successfully committed.
+ */
+export function useClearCartOnOrderCommit(onCommitted?: (order: Order) => void) {
+  const { clearCart } = useCart();
+
+  useEffect(() => {
+    const unsubscribe = orderService.onOrderCommitted((order: Order) => {
+      clearCart();
+      if (onCommitted) {
+        onCommitted(order);
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [clearCart, onCommitted]);
+
+  return clearCart;
+}
 
 export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [items, setItems] = useState<CartItem[]>(() => {
@@ -181,12 +223,31 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   };
 
-  const clearCart = () => {
+  const clearCart = useCallback(() => {
     setItems([]);
     setShopId(null);
     setShopName(null);
     setShopImage(null);
-  };
+    try {
+      localStorage.removeItem(CART_STORAGE_KEY);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // Hook in the CartProvider that clears all items from the cart state immediately
+  // after an order is successfully committed to the database.
+  useAutoClearCartOnOrderCommit(clearCart);
+
+  // Helper method that commits an order to the database and clears the cart state
+  const commitOrderAndClearCart = useCallback(
+    async (orderData: Parameters<typeof orderService.createOrder>[0]): Promise<Order> => {
+      const newOrder = await orderService.createOrder(orderData);
+      clearCart();
+      return newOrder;
+    },
+    [clearCart]
+  );
 
   return (
     <CartContext.Provider
@@ -204,6 +265,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateQuantity,
         getItemQuantity,
         clearCart,
+        commitOrderAndClearCart,
         conflictData,
         resolveConflict,
       }}
@@ -220,3 +282,4 @@ export const useCart = () => {
   }
   return context;
 };
+
