@@ -25,7 +25,8 @@ import {
   FavoriteShopRecord, 
   TokenCounterRecord,
   OrderStatus,
-  PaymentStatus
+  PaymentStatus,
+  BusinessNotification
 } from '../types';
 import { MOCK_SHOPS, MOCK_MENU_ITEMS, MOCK_CATEGORIES, INITIAL_ORDERS } from '../data/mockData';
 import { assertValidOrderSubmission } from '../utils/orderValidation';
@@ -879,6 +880,103 @@ class FirestoreSyncService {
         handleFirestoreError(err, OperationType.GET, `orders/${orderId}`);
       }
       return () => {};
+    }
+  }
+
+  // ============================================================
+  // NOTIFICATIONS CRUD & REALTIME (Section 11)
+  // ============================================================
+
+  public async createNotification(notif: BusinessNotification): Promise<void> {
+    this.startSync();
+    try {
+      await setDoc(doc(db, 'notifications', notif.id), notif);
+    } catch (err) {
+      console.warn('[Firestore] Error creating notification:', err);
+      if (err && (err instanceof Error && err.message.includes('permission'))) {
+        handleFirestoreError(err, OperationType.WRITE, `notifications/${notif.id}`);
+      }
+    } finally {
+      this.endSync();
+    }
+  }
+
+  public async getNotificationsByShop(shopId: string): Promise<BusinessNotification[]> {
+    this.startSync();
+    try {
+      const q = query(
+        collection(db, 'notifications'),
+        where('shopId', '==', shopId)
+      );
+      const snap = await getDocs(q);
+      const notifs = snap.docs.map((d) => d.data() as BusinessNotification);
+      notifs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      return notifs;
+    } catch (err) {
+      console.warn('[Firestore] Error getting notifications by shop:', err);
+      return [];
+    } finally {
+      this.endSync();
+    }
+  }
+
+  public subscribeToShopNotifications(
+    shopId: string,
+    onUpdate: (notifs: BusinessNotification[]) => void
+  ): () => void {
+    try {
+      const q = query(
+        collection(db, 'notifications'),
+        where('shopId', '==', shopId)
+      );
+      return onSnapshot(
+        q,
+        (snapshot) => {
+          const notifs = snapshot.docs.map((d) => d.data() as BusinessNotification);
+          notifs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+          onUpdate(notifs);
+        },
+        (error) => {
+          console.warn('[Firestore] Realtime notifications subscription error:', error);
+          if (error && (error.message?.includes('permission') || (error as any).code?.includes('permission'))) {
+            handleFirestoreError(error, OperationType.GET, 'notifications');
+          }
+        }
+      );
+    } catch (err) {
+      console.warn('[Firestore] Failed to attach notifications subscription:', err);
+      return () => {};
+    }
+  }
+
+  // ============================================================
+  // REVIEWS & RATINGS CRUD
+  // ============================================================
+
+  public async saveOrderReview(
+    orderId: string,
+    rating: number,
+    reviewText: string,
+    feedbackTags: string[] = []
+  ): Promise<void> {
+    this.startSync();
+    try {
+      const now = new Date().toISOString();
+      const orderRef = doc(db, 'orders', orderId);
+      await updateDoc(orderRef, {
+        rating,
+        reviewText,
+        feedbackTags,
+        reviewedAt: now,
+        updatedAt: now,
+      });
+    } catch (err) {
+      console.warn('[Firestore] Error saving order review:', err);
+      if (err && (err instanceof Error && err.message.includes('permission'))) {
+        handleFirestoreError(err, OperationType.UPDATE, `orders/${orderId}`);
+      }
+    } finally {
+      this.endSync();
     }
   }
 }

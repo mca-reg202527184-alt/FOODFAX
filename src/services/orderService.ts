@@ -1,8 +1,8 @@
 import { Order, OrderStatus } from '../types';
 import { INITIAL_ORDERS } from '../data/mockData';
 import { firestoreSync } from './firestoreSyncService';
-import { assertValidOrderSubmission } from '../utils/orderValidation';
 import { notificationService } from './notificationService';
+import { assertValidOrderSubmission } from '../utils/orderValidation';
 
 const ORDERS_STORAGE_KEY = 'foodflow_customer_orders';
 const ORDER_LISTENERS_MAP = new Map<string, Set<(order: Order) => void>>();
@@ -78,18 +78,21 @@ export const orderService = {
       }
     }
 
+    if (!effectiveCustomerId) {
+      // Guest with no account has placed 0 orders: return empty list
+      return [];
+    }
+
     // Real user mode: fetch from Firestore & merge with local non-demo orders
     let remoteOrders: Order[] = [];
-    if (effectiveCustomerId) {
-      try {
-        remoteOrders = await firestoreSync.getOrdersByCustomer(effectiveCustomerId);
-      } catch {
-        // fallback
-      }
+    try {
+      remoteOrders = await firestoreSync.getOrdersByCustomer(effectiveCustomerId);
+    } catch {
+      // fallback
     }
 
     const localOrders = this.getStoredOrders().filter(
-      (o) => (!effectiveCustomerId || o.customerId === effectiveCustomerId || o.customerId.startsWith('cust-')) && !o.isDemo && !MOCK_ORDER_IDS.has(o.id)
+      (o) => o.customerId === effectiveCustomerId && !o.isDemo && !MOCK_ORDER_IDS.has(o.id)
     );
 
     const orderMap = new Map<string, Order>();
@@ -194,21 +197,134 @@ export const orderService = {
   },
 
   async rejectOrder(orderId: string, reason?: string): Promise<Order | null> {
+    return this.cancelOrder(orderId, reason || 'Item unavailable or stall closed', 'owner');
+  },
+
+  async cancelOrder(
+    orderId: string, 
+    reason: string = 'Cancelled by customer', 
+    cancelledBy: 'customer' | 'owner' | 'system' = 'customer'
+  ): Promise<Order | null> {
     const orders = this.getStoredOrders();
     const index = orders.findIndex((o) => o.id === orderId);
-    if (index === -1) return null;
+    let targetOrder: Order | null = null;
+    const now = new Date().toISOString();
 
-    const order = {
-      ...orders[index],
-      orderStatus: 'CANCELLED' as OrderStatus,
-      cancellationReason: reason || 'Item unavailable or stall closed',
-      updatedAt: new Date().toISOString(),
-    };
-    orders[index] = order;
-    this.saveOrders(orders);
-    this.notifyOrderListeners(order);
-    this.notifyShopListeners(order.shopId);
-    return order;
+    if (index !== -1) {
+      targetOrder = {
+        ...orders[index],
+        orderStatus: 'CANCELLED' as OrderStatus,
+        cancellationReason: reason,
+        cancelledAt: now,
+        cancelledBy,
+        updatedAt: now,
+      };
+      orders[index] = targetOrder;
+      this.saveOrders(orders);
+    } else {
+      const remote = await firestoreSync.getOrder(orderId);
+      if (remote) {
+        targetOrder = {
+          ...remote,
+          orderStatus: 'CANCELLED' as OrderStatus,
+          cancellationReason: reason,
+          cancelledAt: now,
+          cancelledBy,
+          updatedAt: now,
+        };
+        this.saveOrders([targetOrder, ...orders]);
+      }
+    }
+
+    if (!targetOrder) return null;
+
+    this.notifyOrderListeners(targetOrder);
+    this.notifyShopListeners(targetOrder.shopId);
+
+    // Update in Firestore
+    try {
+      await firestoreSync.updateOrderStatus(
+        orderId, 
+        'CANCELLED', 
+        {
+          cancellationReason: reason,
+          cancelledAt: now,
+          cancelledBy,
+        },
+        cancelledBy,
+        `Order cancelled by ${cancelledBy}: ${reason}`
+      );
+    } catch (err) {
+      console.warn('[orderService] Failed to sync order cancellation to Firestore:', err);
+    }
+
+    // Trigger real-time notification for the specific shop owner
+    try {
+      await notificationService.addNotification({
+        shopId: targetOrder.shopId,
+        title: cancelledBy === 'customer' ? 'Order Cancelled by Customer' : 'Order Cancelled',
+        message: `Token ${targetOrder.tokenNumber} was cancelled: "${reason}". Total ₹${targetOrder.total}`,
+        type: 'ORDER_CANCELLED',
+        tokenNumber: targetOrder.tokenNumber,
+        orderId: targetOrder.id,
+        amount: targetOrder.total,
+      });
+    } catch (err) {
+      console.warn('[orderService] Failed to dispatch cancellation notification:', err);
+    }
+
+    return targetOrder;
+  },
+
+  async submitOrderReview(
+    orderId: string,
+    rating: number,
+    reviewText: string,
+    feedbackTags: string[] = []
+  ): Promise<Order | null> {
+    const orders = this.getStoredOrders();
+    const index = orders.findIndex((o) => o.id === orderId);
+    const now = new Date().toISOString();
+    let updatedOrder: Order | null = null;
+
+    if (index !== -1) {
+      updatedOrder = {
+        ...orders[index],
+        rating,
+        reviewText,
+        feedbackTags,
+        reviewedAt: now,
+        updatedAt: now,
+      };
+      orders[index] = updatedOrder;
+      this.saveOrders(orders);
+    } else {
+      const remote = await firestoreSync.getOrder(orderId);
+      if (remote) {
+        updatedOrder = {
+          ...remote,
+          rating,
+          reviewText,
+          feedbackTags,
+          reviewedAt: now,
+          updatedAt: now,
+        };
+        this.saveOrders([updatedOrder, ...orders]);
+      }
+    }
+
+    if (!updatedOrder) return null;
+
+    this.notifyOrderListeners(updatedOrder);
+    this.notifyShopListeners(updatedOrder.shopId);
+
+    try {
+      await firestoreSync.saveOrderReview(orderId, rating, reviewText, feedbackTags);
+    } catch (err) {
+      console.warn('[orderService] Failed to sync review to Firestore:', err);
+    }
+
+    return updatedOrder;
   },
 
   async markPaymentPaid(orderId: string): Promise<Order | null> {
@@ -385,65 +501,6 @@ export const orderService = {
       readyAt: order.readyAt,
       completedAt: order.completedAt,
     });
-
-    return order;
-  },
-
-  async cancelOrder(orderId: string, reason: string = 'Cancelled by customer', cancelledBy: string = 'Customer'): Promise<Order | null> {
-    const orders = this.getStoredOrders();
-    const index = orders.findIndex((o) => o.id === orderId);
-
-    let order: Order | null = null;
-    const cancelledAt = new Date().toISOString();
-
-    if (index !== -1) {
-      order = {
-        ...orders[index],
-        orderStatus: 'CANCELLED',
-        cancellationReason: reason,
-        updatedAt: cancelledAt,
-      };
-      orders[index] = order;
-      this.saveOrders(orders);
-      this.notifyOrderListeners(order);
-      this.notifyShopListeners(order.shopId);
-    } else {
-      const remote = await firestoreSync.getOrder(orderId);
-      if (remote) {
-        order = {
-          ...remote,
-          orderStatus: 'CANCELLED',
-          cancellationReason: reason,
-          updatedAt: cancelledAt,
-        };
-      }
-    }
-
-    await firestoreSync.updateOrderStatus(
-      orderId,
-      'CANCELLED',
-      {
-        cancellationReason: reason,
-        updatedAt: cancelledAt,
-      },
-      cancelledBy,
-      `Order cancelled by ${cancelledBy}: ${reason}`
-    );
-
-    // Notify shop owner in real-time
-    if (order) {
-      try {
-        await notificationService.addNotification({
-          shopId: order.shopId,
-          type: 'order_status',
-          title: `Order Cancelled: ${order.tokenNumber}`,
-          message: `Customer cancelled token ${order.tokenNumber} (${reason}). Total: ₹${order.total}`,
-          orderId: order.id,
-        });
-      } catch (err) {
-        console.warn('[orderService] Failed to emit cancel notification:', err);
-      }
-    }
 
     return order;
   },

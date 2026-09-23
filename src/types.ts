@@ -136,6 +136,12 @@ export interface Order {
   completedAt?: string;
   instructions?: string;
   cancellationReason?: string;
+  cancelledAt?: string;
+  cancelledBy?: 'customer' | 'owner' | 'system';
+  rating?: number;
+  reviewText?: string;
+  reviewedAt?: string;
+  feedbackTags?: string[];
   isDemo?: boolean;
 }
 
@@ -154,7 +160,7 @@ export interface BusinessNotification {
   shopId: string;
   title: string;
   message: string;
-  type: 'ORDER_NEW' | 'ORDER_READY' | 'PAYMENT' | 'ALERT' | 'INFO';
+  type: 'ORDER_NEW' | 'ORDER_READY' | 'ORDER_CANCELLED' | 'PAYMENT' | 'ALERT' | 'INFO';
   tokenNumber?: string;
   orderId?: string;
   amount?: number;

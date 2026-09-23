@@ -1,5 +1,6 @@
 import { BusinessNotification } from '../types';
 import { MOCK_NOTIFICATIONS } from '../data/mockData';
+import { firestoreSync } from './firestoreSyncService';
 
 const NOTIFICATIONS_STORAGE_KEY = 'foodflow_business_notifications';
 
@@ -27,7 +28,24 @@ export const notificationService = {
   async getNotifications(shopId: string = 'sharma-vada-pav'): Promise<BusinessNotification[]> {
     await new Promise((r) => setTimeout(r, 40));
     const all = this.getStoredNotifications();
-    return all.filter((n) => n.shopId === shopId);
+    const localMatches = all.filter((n) => n.shopId === shopId);
+
+    // Attempt to pull real notifications from Firestore
+    try {
+      const remoteNotifs = await firestoreSync.getNotificationsByShop(shopId);
+      if (remoteNotifs && remoteNotifs.length > 0) {
+        const notifMap = new Map<string, BusinessNotification>();
+        localMatches.forEach((n) => notifMap.set(n.id, n));
+        remoteNotifs.forEach((n) => notifMap.set(n.id, n));
+        const combined = Array.from(notifMap.values());
+        combined.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        return combined;
+      }
+    } catch {
+      // fallback
+    }
+
+    return localMatches;
   },
 
   async markAsRead(id: string): Promise<void> {
@@ -52,8 +70,47 @@ export const notificationService = {
     };
     const updated = [newNotif, ...all];
     this.saveNotifications(updated);
-    this.playNewOrderAlert();
+
+    // Sync to Firestore for real-time shop notification delivery
+    try {
+      await firestoreSync.createNotification(newNotif);
+    } catch (err) {
+      console.warn('[NotificationService] Firestore notification sync failed:', err);
+    }
+
+    if (data.type === 'ALERT' || (data.type as string) === 'ORDER_CANCELLED') {
+      this.playAlertChime();
+    } else {
+      this.playNewOrderAlert();
+    }
     return newNotif;
+  },
+
+  /**
+   * Play alert buzzer for order cancellation or high-priority warnings
+   */
+  playAlertChime(): void {
+    try {
+      const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (!AudioContextClass) return;
+      const ctx = new AudioContextClass();
+      const now = ctx.currentTime;
+
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(440, now); // A4
+      osc.frequency.setValueAtTime(330, now + 0.15); // E4
+      gain.gain.setValueAtTime(0.35, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.55);
+    } catch {
+      // Audio context might be restricted
+    }
   },
 
   /**

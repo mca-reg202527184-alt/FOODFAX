@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Order, OrderStatus } from '../../types';
+import { Order, OrderStatus, Shop } from '../../types';
 import { orderService } from '../../services/orderService';
 import { orderRealtimeService } from '../../services/orderRealtimeService';
 import { notificationService } from '../../services/notificationService';
+import { shopService } from '../../services/shopService';
 import { useAccessibility } from '../../context/AccessibilityContext';
 import { useRouter } from '../../context/RouterContext';
 import { 
@@ -31,9 +32,13 @@ import {
   Users,
   AlertCircle,
   XCircle,
-  Ban
+  Ban,
+  Star
 } from 'lucide-react';
 import { VegBadge } from '../common/VegBadge';
+import { GoogleShopMap } from '../common/GoogleShopMap';
+import { CancelOrderModal } from './CancelOrderModal';
+import { OrderRatingReview } from './OrderRatingReview';
 
 interface LiveOrderTrackerProps {
   orderId: string;
@@ -97,10 +102,8 @@ export const LiveOrderTracker: React.FC<LiveOrderTrackerProps> = ({ orderId }) =
   const [copied, setCopied] = useState(false);
   const [showPickupPassModal, setShowPickupPassModal] = useState(false);
   const [activeTab, setActiveTab] = useState<'timeline' | 'map' | 'receipt' | 'messages'>('timeline');
-  const [showCancelModal, setShowCancelModal] = useState(false);
-  const [cancelReason, setCancelReason] = useState('Changed mind / Placed by mistake');
-  const [customCancelNote, setCustomCancelNote] = useState('');
-  const [isCancelling, setIsCancelling] = useState(false);
+  const [shop, setShop] = useState<Shop | null>(null);
+  const [showCancelModal, setShowCancelModal] = useState<boolean>(false);
 
   // Customer quick signals sent to stall
   const [customerSignals, setCustomerSignals] = useState<Array<{ text: string; time: string; from: 'customer' | 'stall' }>>([
@@ -128,6 +131,15 @@ export const LiveOrderTracker: React.FC<LiveOrderTrackerProps> = ({ orderId }) =
     return String(Math.abs(hash)).padStart(4, '7');
   }, [order?.id]);
 
+  const handleCustomerCancel = async (reason: string) => {
+    if (!order) return;
+    const updated = await orderService.cancelOrder(order.id, reason, 'customer');
+    if (updated) {
+      setOrder(updated);
+      announce(`Order ${updated.tokenNumber} has been cancelled.`, 'assertive', true);
+    }
+  };
+
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
 
@@ -138,6 +150,10 @@ export const LiveOrderTracker: React.FC<LiveOrderTrackerProps> = ({ orderId }) =
       setLoading(false);
 
       if (data) {
+        // Fetch full shop data for map coordinates and details
+        shopService.getShop(data.shopId).then((s) => {
+          if (s) setShop(s);
+        });
         // Initial queue calculation
         const tokenNum = parseInt(data.tokenNumber.replace('#', ''), 10) || 140;
         setQueueAheadCount(Math.max(1, tokenNum - 138));
@@ -267,34 +283,6 @@ export const LiveOrderTracker: React.FC<LiveOrderTrackerProps> = ({ orderId }) =
     window.print();
   };
 
-  const handleCancelOrder = async () => {
-    if (!order) return;
-    setIsCancelling(true);
-    try {
-      const fullReason = customCancelNote.trim()
-        ? `${cancelReason} - ${customCancelNote.trim()}`
-        : cancelReason;
-
-      const updated = await orderService.cancelOrder(
-        order.id,
-        fullReason,
-        order.customerName || 'Customer'
-      );
-
-      if (updated) {
-        setOrder(updated);
-      } else {
-        setOrder((prev) => (prev ? { ...prev, orderStatus: 'CANCELLED', cancellationReason: fullReason } : null));
-      }
-      setShowCancelModal(false);
-      announce('Your order has been cancelled, and the stall owner was notified.', 'assertive');
-    } catch (err) {
-      console.error('Failed to cancel order:', err);
-    } finally {
-      setIsCancelling(false);
-    }
-  };
-
   if (loading) {
     return (
       <div 
@@ -332,6 +320,7 @@ export const LiveOrderTracker: React.FC<LiveOrderTrackerProps> = ({ orderId }) =
   }
 
   const currentLevel = STATUS_LEVELS[order.orderStatus] || 1;
+  const isCancelled = order.orderStatus === 'CANCELLED';
   const isReady = order.orderStatus === 'READY';
   const isCompleted = order.orderStatus === 'COMPLETED';
 
@@ -342,6 +331,8 @@ export const LiveOrderTracker: React.FC<LiveOrderTrackerProps> = ({ orderId }) =
   const totalPrepSecs = (parseInt(order.estimatedPreparationMinutes, 10) || 7) * 60;
   const progressPercent = isCompleted 
     ? 100 
+    : isCancelled
+    ? 0
     : isReady 
     ? 90 
     : Math.min(85, Math.max(15, Math.round(((totalPrepSecs - secondsRemaining) / totalPrepSecs) * 100)));
@@ -351,37 +342,55 @@ export const LiveOrderTracker: React.FC<LiveOrderTrackerProps> = ({ orderId }) =
       aria-label={`Live Order Tracker for Token ${order.tokenNumber}`}
       className="max-w-xl mx-auto pb-28 px-4 sm:px-6 pt-2 space-y-4"
     >
-      {/* CANCELLED ORDER BANNER */}
-      {order.orderStatus === 'CANCELLED' && (
+      {/* 1. CANCELLED CALLOUT BANNER */}
+      {isCancelled && (
         <section
           role="alert"
           aria-live="assertive"
-          className="p-5 rounded-3xl bg-rose-600 text-white shadow-xl shadow-rose-600/25 border-2 border-rose-300 flex items-start justify-between gap-3 animate-in fade-in"
+          className="p-5 rounded-3xl bg-red-600 text-white shadow-xl shadow-red-600/25 border-2 border-red-300 space-y-3"
         >
           <div className="flex items-start gap-3.5">
             <div className="w-12 h-12 rounded-2xl bg-white/20 flex items-center justify-center flex-shrink-0 text-white">
-              <Ban className="w-6 h-6" />
+              <XCircle className="w-6 h-6" />
             </div>
-            <div>
-              <span className="text-[11px] font-extrabold uppercase tracking-widest text-rose-200 block">
+            <div className="flex-1">
+              <span className="text-[11px] font-extrabold uppercase tracking-widest text-red-200 block">
                 Order Status
               </span>
               <h3 className="text-xl font-black tracking-tight leading-tight mt-0.5">
-                Token {order.tokenNumber} Cancelled
+                Token {order.tokenNumber} is Cancelled
               </h3>
-              <p className="text-xs text-rose-100 font-medium mt-1">
-                {order.cancellationReason || 'This order was cancelled by the customer. The stall owner has been notified.'}
+              <p className="text-xs text-red-100 font-medium mt-1">
+                {order.cancellationReason
+                  ? `Reason: "${order.cancellationReason}"`
+                  : 'This order token has been cancelled and the stall owner has been notified.'}
               </p>
-              <div className="mt-2.5 inline-flex items-center gap-2 px-2.5 py-1 rounded-lg bg-rose-800/60 text-[11px] font-bold">
-                <span>Amount: ₹{order.total} • Refund/Account status updated</span>
-              </div>
+              {order.cancelledAt && (
+                <p className="text-[10px] text-red-200 mt-1">
+                  Cancelled at {new Date(order.cancelledAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </p>
+              )}
             </div>
+          </div>
+          <div className="pt-1 flex gap-2">
+            <button
+              onClick={() => navigate(`/shop/${order.shopId}`)}
+              className="flex-1 py-2 px-3 rounded-xl bg-white text-red-950 font-bold text-xs hover:bg-red-50 transition-colors shadow-xs"
+            >
+              Reorder from Stall
+            </button>
+            <button
+              onClick={() => navigate('/orders')}
+              className="py-2 px-4 rounded-xl bg-red-800 text-white font-bold text-xs hover:bg-red-900 transition-colors"
+            >
+              View Order History
+            </button>
           </div>
         </section>
       )}
 
-      {/* 1. HIGH-PRIORITY READY CALLOUT BANNER */}
-      {isReady && (
+      {/* 1.1 HIGH-PRIORITY READY CALLOUT BANNER */}
+      {!isCancelled && isReady && (
         <section
           role="alert"
           aria-live="assertive"
@@ -424,12 +433,29 @@ export const LiveOrderTracker: React.FC<LiveOrderTrackerProps> = ({ orderId }) =
       <section 
         aria-label="Counter Token Pass"
         className={`relative overflow-hidden bg-white rounded-3xl border-2 ${
-          isReady ? 'border-emerald-500 shadow-emerald-500/10' : 'border-orange-500 shadow-orange-500/10'
+          isCancelled
+            ? 'border-red-400 shadow-red-500/10'
+            : isReady
+            ? 'border-emerald-500 shadow-emerald-500/10'
+            : 'border-orange-500 shadow-orange-500/10'
         } p-6 shadow-xl text-center`}
       >
-        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-orange-50 text-orange-800 text-xs font-bold border border-orange-200 mb-2">
-          <Sparkles className="w-3.5 h-3.5 text-orange-600" />
-          <span>Show this Digital Pass at Stall Counter</span>
+        <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border mb-2 ${
+          isCancelled
+            ? 'bg-red-50 text-red-800 border-red-200'
+            : 'bg-orange-50 text-orange-800 border-orange-200'
+        }`}>
+          {isCancelled ? (
+            <>
+              <Ban className="w-3.5 h-3.5 text-red-600" />
+              <span>Token Cancelled</span>
+            </>
+          ) : (
+            <>
+              <Sparkles className="w-3.5 h-3.5 text-orange-600" />
+              <span>Show this Digital Pass at Stall Counter</span>
+            </>
+          )}
         </div>
 
         {/* Big Bold Token Number */}
@@ -507,8 +533,30 @@ export const LiveOrderTracker: React.FC<LiveOrderTrackerProps> = ({ orderId }) =
             <Printer className="w-3.5 h-3.5 text-slate-600" />
             <span>Print Pass</span>
           </button>
+
+          {/* Cancellation Trigger */}
+          {!isCancelled && !isCompleted && (
+            <button
+              onClick={() => setShowCancelModal(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 text-xs font-semibold transition-colors border border-red-200 focus-visible:ring-2 focus-visible:ring-red-600"
+              aria-label="Cancel this order"
+            >
+              <XCircle className="w-3.5 h-3.5 text-red-600" />
+              <span>Cancel Order</span>
+            </button>
+          )}
         </div>
       </section>
+
+      {/* 2.1 COMPLETED ORDER STAR RATING & REVIEW CARD */}
+      {isCompleted && (
+        <section aria-label="Customer Review and Rating Feedback">
+          <OrderRatingReview
+            order={order}
+            onReviewSubmitted={(updated) => setOrder(updated)}
+          />
+        </section>
+      )}
 
       {/* 3. REAL-TIME QUEUE & COUNTDOWN HIGHLIGHT */}
       <section 
@@ -737,38 +785,25 @@ export const LiveOrderTracker: React.FC<LiveOrderTrackerProps> = ({ orderId }) =
           <div className="flex items-center justify-between">
             <h4 className="font-bold text-sm text-slate-900 flex items-center gap-2">
               <MapPin className="w-4 h-4 text-orange-600" />
-              <span>Counter Location & Directions</span>
+              <span>Counter Location & Live Map</span>
             </h4>
             <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-200">
               ~2 min walk
             </span>
           </div>
 
-          {/* Interactive visual stall schematic / map diagram */}
-          <div className="relative h-44 rounded-2xl bg-slate-100 border border-slate-300 overflow-hidden flex items-center justify-center p-4">
-            {/* Grid pattern */}
-            <div className="absolute inset-0 bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:16px_16px] opacity-70 pointer-events-none" />
-            
-            {/* Stall Pin */}
-            <div className="relative z-10 flex flex-col items-center text-center">
-              <div className="w-12 h-12 rounded-2xl bg-orange-600 text-white flex items-center justify-center shadow-lg shadow-orange-600/30 animate-bounce">
-                <Store className="w-6 h-6" />
-              </div>
-              <span className="mt-2 font-black text-xs text-slate-900 bg-white/90 px-2.5 py-1 rounded-lg shadow-xs border border-slate-200">
-                {order.shopName} — Counter 1
-              </span>
-              <span className="text-[11px] text-slate-600 font-semibold mt-0.5">
-                {order.shopLocation}
-              </span>
-            </div>
+          {/* Real-time Google Maps & GPS Coordinate Visualizer */}
+          <GoogleShopMap
+            shopName={order.shopName}
+            shopLocation={order.shopLocation}
+            landmark={shop?.location?.landmark}
+            address={shop?.location?.address || shop?.address || order.shopLocation}
+            latitude={shop?.latitude || shop?.location?.latitude || 19.1197}
+            longitude={shop?.longitude || shop?.location?.longitude || 72.8464}
+            height="h-56"
+          />
 
-            {/* Campus Landmark Tag */}
-            <div className="absolute bottom-2 left-2 bg-white/90 backdrop-blur-xs px-2.5 py-1 rounded-lg border border-slate-200 text-[10px] font-bold text-slate-700">
-              📍 Landmark: Next to Footover Bridge
-            </div>
-          </div>
-
-          {/* Details */}
+          {/* Counter Pickup Details */}
           <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-slate-500">Pickup Counter:</span>
@@ -776,32 +811,23 @@ export const LiveOrderTracker: React.FC<LiveOrderTrackerProps> = ({ orderId }) =
             </div>
             <div className="flex items-center justify-between">
               <span className="text-slate-500">Stall Contact:</span>
-              <span className="font-bold text-slate-900">+91 98921 77880</span>
+              <span className="font-bold text-slate-900">{shop?.phone || '+91 98921 77880'}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-slate-500">Dine-in / Seating:</span>
-              <span className="font-bold text-slate-900">Available behind the counter</span>
+              <span className="font-bold text-slate-900">
+                {shop?.tableServiceAvailable ? 'Available behind counter' : 'Counter pickup only'}
+              </span>
             </div>
           </div>
 
           <div className="flex gap-2.5">
             <a
-              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                order.shopName + ' ' + order.shopLocation
-              )}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex-1 py-2.5 px-3 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-xs"
-            >
-              <Navigation className="w-4 h-4" />
-              <span>Google Maps Navigation</span>
-            </a>
-            <a
-              href="tel:+919892177880"
-              className="py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors border border-slate-200"
+              href={`tel:${shop?.phone || '+919892177880'}`}
+              className="w-full py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors border border-slate-200"
             >
               <Phone className="w-4 h-4 text-slate-600" />
-              <span>Call Stall</span>
+              <span>Call Stall ({shop?.phone || '+91 98921 77880'})</span>
             </a>
           </div>
         </section>
@@ -1055,97 +1081,6 @@ export const LiveOrderTracker: React.FC<LiveOrderTrackerProps> = ({ orderId }) =
         </button>
       </div>
 
-      {/* Cancel Order Action (Customer requested) */}
-      {order.orderStatus !== 'COMPLETED' && order.orderStatus !== 'CANCELLED' && (
-        <div className="pt-1">
-          <button
-            onClick={() => setShowCancelModal(true)}
-            className="w-full py-3 px-4 rounded-2xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 font-bold text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer"
-          >
-            <XCircle className="w-4 h-4 text-rose-600" />
-            <span>Cancel My Order</span>
-          </button>
-        </div>
-      )}
-
-      {/* CANCEL ORDER MODAL */}
-      {showCancelModal && (
-        <div 
-          role="dialog"
-          aria-modal="true"
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
-          onClick={() => !isCancelling && setShowCancelModal(false)}
-        >
-          <div 
-            className="w-full max-w-md bg-white rounded-3xl p-6 shadow-2xl border border-slate-200 space-y-4"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2 text-rose-600 font-black text-sm">
-                <Ban className="w-5 h-5" />
-                <span>Cancel Order #{order.tokenNumber}</span>
-              </div>
-              <button 
-                onClick={() => !isCancelling && setShowCancelModal(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
-              >
-                ✕
-              </button>
-            </div>
-
-            <p className="text-xs text-slate-600">
-              Are you sure you want to cancel your order at <strong className="text-slate-900">{order.shopName}</strong>? 
-              The stall owner will be immediately notified so they do not prepare the items.
-            </p>
-
-            <div className="space-y-2">
-              <label className="block text-xs font-bold text-slate-700">Reason for cancellation</label>
-              <select
-                value={cancelReason}
-                onChange={(e) => setCancelReason(e.target.value)}
-                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-slate-50 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-rose-500"
-              >
-                <option value="Changed mind / Placed by mistake">Changed mind / Placed by mistake</option>
-                <option value="Wait time / queue is too long">Wait time / queue is too long</option>
-                <option value="Need to change stall or items">Need to change stall or items</option>
-                <option value="Emergency / Have to leave">Emergency / Have to leave</option>
-                <option value="Other">Other</option>
-              </select>
-            </div>
-
-            <div className="space-y-1">
-              <label className="block text-[11px] font-bold text-slate-600">Additional Note (Optional)</label>
-              <input
-                type="text"
-                value={customCancelNote}
-                onChange={(e) => setCustomCancelNote(e.target.value)}
-                placeholder="e.g. Will order again later"
-                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 font-medium text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-rose-500"
-              />
-            </div>
-
-            <div className="flex gap-2 pt-2">
-              <button
-                type="button"
-                disabled={isCancelling}
-                onClick={() => setShowCancelModal(false)}
-                className="flex-1 py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
-              >
-                Keep Order
-              </button>
-              <button
-                type="button"
-                disabled={isCancelling}
-                onClick={handleCancelOrder}
-                className="flex-1 py-2.5 px-4 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-sm shadow-rose-600/20"
-              >
-                {isCancelling ? 'Cancelling...' : 'Confirm Cancellation'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* 6. QR SCANNER PASS MODAL */}
       {showPickupPassModal && (
         <div 
@@ -1205,6 +1140,14 @@ export const LiveOrderTracker: React.FC<LiveOrderTrackerProps> = ({ orderId }) =
           </div>
         </div>
       )}
+
+      {/* 8. CUSTOMER ORDER CANCELLATION MODAL */}
+      <CancelOrderModal
+        order={order}
+        isOpen={showCancelModal}
+        onClose={() => setShowCancelModal(false)}
+        onConfirmCancel={handleCustomerCancel}
+      />
     </article>
   );
 };

@@ -19,9 +19,11 @@ import {
   Bell,
   Volume2,
   Filter,
+  Star,
   XCircle,
   Ban
 } from 'lucide-react';
+import { OrderRatingReview } from '../components/order/OrderRatingReview';
 
 export const OrdersHistoryView: React.FC = () => {
   const { navigate } = useRouter();
@@ -29,10 +31,8 @@ export const OrdersHistoryView: React.FC = () => {
   const { highContrast } = useAccessibility();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'all' | 'active' | 'completed'>('all');
-  const [cancelTargetOrder, setCancelTargetOrder] = useState<Order | null>(null);
-  const [cancelReason, setCancelReason] = useState('Changed mind / Placed by mistake');
-  const [isCancelling, setIsCancelling] = useState(false);
+  const [filter, setFilter] = useState<'all' | 'active' | 'completed' | 'cancelled'>('all');
+  const [reviewingOrderId, setReviewingOrderId] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchOrders = async () => {
@@ -51,30 +51,6 @@ export const OrdersHistoryView: React.FC = () => {
 
     return () => unsub();
   }, [currentUser?.id]);
-
-  const handleConfirmCancel = async () => {
-    if (!cancelTargetOrder) return;
-    setIsCancelling(true);
-    try {
-      await orderService.cancelOrder(
-        cancelTargetOrder.id,
-        cancelReason,
-        currentUser?.fullName || currentUser?.name || 'Customer'
-      );
-      setOrders((prev) =>
-        prev.map((o) =>
-          o.id === cancelTargetOrder.id
-            ? { ...o, orderStatus: 'CANCELLED', cancellationReason: cancelReason }
-            : o
-        )
-      );
-      setCancelTargetOrder(null);
-    } catch (err) {
-      console.error('Failed to cancel order:', err);
-    } finally {
-      setIsCancelling(false);
-    }
-  };
 
   if (loading) {
     return (
@@ -105,11 +81,17 @@ export const OrdersHistoryView: React.FC = () => {
       order.orderStatus === 'ACCEPTED' ||
       order.orderStatus === 'PREPARING' ||
       order.orderStatus === 'READY';
+    const isCancelled = order.orderStatus === 'CANCELLED';
+    const isCompleted = order.orderStatus === 'COMPLETED';
 
     if (filter === 'active') return isActive;
-    if (filter === 'completed') return !isActive;
+    if (filter === 'completed') return isCompleted;
+    if (filter === 'cancelled') return isCancelled;
     return true;
   });
+
+  const cancelledOrdersCount = orders.filter((o) => o.orderStatus === 'CANCELLED').length;
+  const completedOrdersCount = orders.filter((o) => o.orderStatus === 'COMPLETED').length;
 
   if (orders.length === 0) {
     return (
@@ -145,13 +127,13 @@ export const OrdersHistoryView: React.FC = () => {
       <div 
         role="tablist" 
         aria-label="Order filters"
-        className="flex items-center gap-1.5 p-1 bg-slate-200/60 rounded-xl max-w-sm"
+        className="flex items-center gap-1.5 p-1 bg-slate-200/60 rounded-xl max-w-md overflow-x-auto"
       >
         <button
           role="tab"
           aria-selected={filter === 'all'}
           onClick={() => setFilter('all')}
-          className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all ${
+          className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
             filter === 'all'
               ? 'bg-white text-slate-900 shadow-xs'
               : 'text-slate-600 hover:text-slate-900'
@@ -163,7 +145,7 @@ export const OrdersHistoryView: React.FC = () => {
           role="tab"
           aria-selected={filter === 'active'}
           onClick={() => setFilter('active')}
-          className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+          className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 whitespace-nowrap ${
             filter === 'active'
               ? 'bg-orange-600 text-white shadow-xs'
               : 'text-slate-600 hover:text-slate-900'
@@ -178,13 +160,25 @@ export const OrdersHistoryView: React.FC = () => {
           role="tab"
           aria-selected={filter === 'completed'}
           onClick={() => setFilter('completed')}
-          className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all ${
+          className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
             filter === 'completed'
               ? 'bg-white text-slate-900 shadow-xs'
               : 'text-slate-600 hover:text-slate-900'
           }`}
         >
-          Completed
+          Completed ({completedOrdersCount})
+        </button>
+        <button
+          role="tab"
+          aria-selected={filter === 'cancelled'}
+          onClick={() => setFilter('cancelled')}
+          className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+            filter === 'cancelled'
+              ? 'bg-red-600 text-white shadow-xs'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          Cancelled ({cancelledOrdersCount})
         </button>
       </div>
 
@@ -262,6 +256,12 @@ export const OrdersHistoryView: React.FC = () => {
                           })}
                         </span>
                       </p>
+                      {order.cancellationReason && (
+                        <p className="text-[11px] text-red-600 font-semibold mt-1 flex items-center gap-1">
+                          <Ban className="w-3 h-3 text-red-500" />
+                          <span>Cancelled: {order.cancellationReason}</span>
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -270,14 +270,14 @@ export const OrdersHistoryView: React.FC = () => {
                       className={`inline-block text-[10px] font-extrabold uppercase px-2 py-1 rounded-lg ${
                         isReady
                           ? 'bg-emerald-600 text-white animate-pulse'
+                          : order.orderStatus === 'CANCELLED'
+                          ? 'bg-red-100 text-red-800 border border-red-200'
                           : order.orderStatus === 'PREPARING'
                           ? 'bg-orange-100 text-orange-800'
                           : order.orderStatus === 'ACCEPTED'
                           ? 'bg-blue-100 text-blue-800'
                           : order.orderStatus === 'COMPLETED'
                           ? 'bg-slate-100 text-slate-700'
-                          : order.orderStatus === 'CANCELLED'
-                          ? 'bg-rose-100 text-rose-800'
                           : 'bg-amber-100 text-amber-800'
                       }`}
                     >
@@ -293,103 +293,71 @@ export const OrdersHistoryView: React.FC = () => {
                 </div>
 
                 {/* Items preview */}
-                <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600 gap-2">
-                  <span className="truncate max-w-[180px] sm:max-w-xs font-medium">
+                <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600">
+                  <span className="truncate max-w-[220px] sm:max-w-xs font-medium">
                     {order.items.map((i) => `${i.quantity}x ${i.name}`).join(', ')}
                   </span>
 
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    {(order.orderStatus === 'PENDING' || order.orderStatus === 'ACCEPTED') && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setCancelTargetOrder(order);
-                        }}
-                        className="px-2.5 py-1 text-[11px] font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
-                      >
-                        <XCircle className="w-3.5 h-3.5" />
-                        <span>Cancel</span>
-                      </button>
-                    )}
-                    <div className="flex items-center gap-1 text-orange-600 font-bold group-hover:translate-x-0.5 transition-transform">
-                      <span>{isActive ? 'Track Live' : 'View Receipt'}</span>
-                      <ChevronRight className="w-4 h-4" />
-                    </div>
+                  <div className="flex items-center gap-1 text-orange-600 font-bold group-hover:translate-x-0.5 transition-transform flex-shrink-0">
+                    <span>{isActive ? 'Track Live' : 'View Receipt'}</span>
+                    <ChevronRight className="w-4 h-4" />
                   </div>
                 </div>
+
+                {/* Feedback & Review CTA for Completed Orders */}
+                {order.orderStatus === 'COMPLETED' && (
+                  <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between gap-2">
+                    {order.rating ? (
+                      <div className="flex items-center gap-1.5 text-xs text-amber-900 font-bold bg-amber-50/90 px-2 py-0.5 rounded-lg border border-amber-200">
+                        <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-400" />
+                        <span>{order.rating}.0★ Feedback</span>
+                        {order.reviewText && (
+                          <span className="text-[11px] text-slate-500 font-normal italic truncate max-w-[140px]">
+                            "{order.reviewText}"
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-[11px] text-slate-400 font-medium">
+                        Rate your experience at {order.shopName}
+                      </span>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setReviewingOrderId(reviewingOrderId === order.id ? null : order.id);
+                      }}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-colors bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200"
+                    >
+                      <Star className="w-3 h-3 text-amber-500" />
+                      <span>{order.rating ? 'Edit Review' : 'Rate Stall'}</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* Expandable Rating & Review Form */}
+                {reviewingOrderId === order.id && (
+                  <div 
+                    onClick={(e) => e.stopPropagation()} 
+                    className="pt-2 animate-in fade-in duration-150"
+                  >
+                    <OrderRatingReview
+                      order={order}
+                      compact={true}
+                      onReviewSubmitted={(updated) => {
+                        setOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
+                        setReviewingOrderId(null);
+                      }}
+                    />
+                  </div>
+                )}
               </div>
             );
           })
         )}
       </div>
-
-      {/* Cancel Order Modal */}
-      {cancelTargetOrder && (
-        <div 
-          role="dialog"
-          aria-modal="true"
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
-          onClick={() => !isCancelling && setCancelTargetOrder(null)}
-        >
-          <div 
-            className="w-full max-w-md bg-white rounded-3xl p-6 shadow-2xl border border-slate-200 space-y-4"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2 text-rose-600 font-black text-sm">
-                <Ban className="w-5 h-5" />
-                <span>Cancel Order {cancelTargetOrder.tokenNumber}</span>
-              </div>
-              <button 
-                onClick={() => !isCancelling && setCancelTargetOrder(null)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
-              >
-                ✕
-              </button>
-            </div>
-
-            <p className="text-xs text-slate-600">
-              Are you sure you want to cancel your order at <strong className="text-slate-900">{cancelTargetOrder.shopName}</strong>? 
-              The stall owner will be immediately notified.
-            </p>
-
-            <div className="space-y-2">
-              <label className="block text-xs font-bold text-slate-700">Reason for cancellation</label>
-              <select
-                value={cancelReason}
-                onChange={(e) => setCancelReason(e.target.value)}
-                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-slate-50 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-rose-500"
-              >
-                <option value="Changed mind / Placed by mistake">Changed mind / Placed by mistake</option>
-                <option value="Wait time / queue is too long">Wait time / queue is too long</option>
-                <option value="Need to change stall or items">Need to change stall or items</option>
-                <option value="Emergency / Have to leave">Emergency / Have to leave</option>
-                <option value="Other">Other</option>
-              </select>
-            </div>
-
-            <div className="flex gap-2 pt-2">
-              <button
-                type="button"
-                disabled={isCancelling}
-                onClick={() => setCancelTargetOrder(null)}
-                className="flex-1 py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
-              >
-                Keep Order
-              </button>
-              <button
-                type="button"
-                disabled={isCancelling}
-                onClick={handleConfirmCancel}
-                className="flex-1 py-2.5 px-4 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-sm shadow-rose-600/20"
-              >
-                {isCancelling ? 'Cancelling...' : 'Confirm Cancellation'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
